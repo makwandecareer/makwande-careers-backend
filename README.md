@@ -1,24 +1,14 @@
-# Makwande Careers AI CV Builder v3
+# Makwande Careers Structured Platform v4
 
-Copy these files into your existing backend project and replace files when prompted.
+Adds structured PostgreSQL modules for certifications, projects, languages, references, CV templates, jobs, applications, shortlists and dashboards.
 
-Install:
+Copy all files into:
 
-```cmd
+E:\Makwande_Careers_Backend\makwande-Careers-backend
+
+Then run:
+
 python -m pip install -r requirements.txt
-```
-
-Run:
-
-```cmd
 python -m uvicorn app.main:app --reload
-```
 
-New endpoints:
-
-- POST /api/ai-cv/generate
-- POST /api/ai-cv/ats-score
-- POST /api/ai-cv/improve-summary
-- POST /api/ai-cv/improve-experience
-- POST /api/ai-cv/export/docx
-- POST /api/ai-cv/export/pdf
+Open http://127.0.0.1:8000/docs and confirm API version 4.0.0.
