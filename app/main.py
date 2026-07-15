@@ -35,3 +35,12 @@ app.include_router(auth.router,prefix='/api')
 app.include_router(platform.router,prefix='/api')
 app.include_router(ai_cv.router,prefix='/api')
 app.include_router(structured.router,prefix='/api')
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return {
+        "name": settings.app_name,
+        "version": "4.0.0",
+        "status": "live",
+        "docs": "/docs"
+    }
