@@ -5,4 +5,5 @@ pydantic-settings>=2.10,<3
 email-validator>=2.2,<3
 PyJWT>=2.10,<3
 pwdlib[argon2]>=0.2,<1
+psycopg[binary,pool]>=3.2,<4
 python-multipart>=0.0.20,<1

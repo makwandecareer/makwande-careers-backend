@@ -1,60 +1,19 @@
+from datetime import date, datetime
 from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field
 
-UserRole = Literal["candidate", "cv_builder", "employer", "admin"]
-
 class RegisterRequest(BaseModel):
-    email: EmailStr
-    full_name: str = Field(min_length=2, max_length=200)
-    password: str = Field(min_length=12, max_length=128)
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-class UserResponse(BaseModel):
-    id: str
-    email: EmailStr
-    full_name: str
-    role: UserRole
-    is_active: bool
-    created_at: str
-
-class CVCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    target_role: str | None = Field(default=None, max_length=160)
-    content: dict[str, Any] = Field(default_factory=dict)
-    is_public_to_employers: bool = False
-
-class CVUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    target_role: str | None = Field(default=None, max_length=160)
-    content: dict[str, Any]
-    is_public_to_employers: bool
-    version: int = Field(ge=1)
-
-class CVResponse(BaseModel):
-    id: str
-    owner_id: str
-    title: str
-    target_role: str | None
-    content: dict[str, Any]
-    is_public_to_employers: bool
-    version: int
-    created_at: str
-    updated_at: str
-
-class CareerGuidanceRequest(BaseModel):
-    current_role: str | None = Field(default=None, max_length=160)
-    target_role: str = Field(min_length=2, max_length=160)
-    skills: list[str] = Field(default_factory=list, max_length=100)
-    qualifications: list[str] = Field(default_factory=list, max_length=50)
-
-class CareerGuidanceResponse(BaseModel):
-    strengths: list[str]
-    gaps: list[str]
-    next_steps: list[str]
+    email: EmailStr; full_name: str = Field(min_length=2,max_length=200); password: str = Field(min_length=12,max_length=128)
+class LoginRequest(BaseModel): email: EmailStr; password: str
+class TokenResponse(BaseModel): access_token: str; token_type: str = 'bearer'
+class ProfileIn(BaseModel):
+    phone: str|None=None; location: str|None=None; professional_title: str|None=None; professional_summary: str|None=None; linkedin_url: str|None=None; portfolio_url: str|None=None; visibility: Literal['private','employers']='private'
+class EducationIn(BaseModel):
+    institution: str; qualification: str; field_of_study: str|None=None; start_date: date|None=None; end_date: date|None=None; description: str|None=None
+class ExperienceIn(BaseModel):
+    company: str; job_title: str; start_date: date|None=None; end_date: date|None=None; description: str|None=None; achievements: list[str]=[]
+class SkillIn(BaseModel): name: str; proficiency: str|None=None
+class CVIn(BaseModel):
+    title: str; target_role: str|None=None; template_key: str='ats-standard'; content: dict[str,Any]={}; is_public_to_employers: bool=False
+class CVUpdate(CVIn): version: int
+class CareerGuidanceIn(BaseModel): target_role: str; skills: list[str]=[]; qualifications: list[str]=[]

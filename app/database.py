@@ -1,84 +1,62 @@
-import json
-import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
-from typing import Any, Iterator
-
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from app.config import settings
 
-def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+pool = ConnectionPool(settings.database_url, min_size=1, max_size=5, kwargs={'row_factory': dict_row}, open=False)
+
+def open_pool():
+    pool.open(); pool.wait()
+
+def close_pool():
+    pool.close()
 
 @contextmanager
-def get_connection() -> Iterator[sqlite3.Connection]:
-    connection = sqlite3.connect(settings.database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
+def get_connection():
+    with pool.connection() as conn:
+        yield conn
 
-def init_database() -> None:
-    with get_connection() as db:
-        db.executescript(
-            '''
+def init_database():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                full_name TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'candidate',
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL
+              id UUID PRIMARY KEY, email VARCHAR(320) UNIQUE NOT NULL,
+              full_name VARCHAR(200) NOT NULL, password_hash VARCHAR(255) NOT NULL,
+              role VARCHAR(30) NOT NULL DEFAULT 'candidate', is_active BOOLEAN NOT NULL DEFAULT TRUE,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
-
+            CREATE TABLE IF NOT EXISTS profiles (
+              id UUID PRIMARY KEY, user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              phone VARCHAR(40), location VARCHAR(200), professional_title VARCHAR(160),
+              professional_summary TEXT, linkedin_url TEXT, portfolio_url TEXT,
+              visibility VARCHAR(20) NOT NULL DEFAULT 'private', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS education (
+              id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              institution VARCHAR(240) NOT NULL, qualification VARCHAR(240) NOT NULL,
+              field_of_study VARCHAR(240), start_date DATE, end_date DATE, description TEXT
+            );
+            CREATE TABLE IF NOT EXISTS experience (
+              id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              company VARCHAR(240) NOT NULL, job_title VARCHAR(200) NOT NULL,
+              start_date DATE, end_date DATE, description TEXT, achievements JSONB NOT NULL DEFAULT '[]'::jsonb
+            );
+            CREATE TABLE IF NOT EXISTS skills (
+              id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              name VARCHAR(160) NOT NULL, proficiency VARCHAR(40), UNIQUE(user_id,name)
+            );
             CREATE TABLE IF NOT EXISTS cvs (
-                id TEXT PRIMARY KEY,
-                owner_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                target_role TEXT,
-                content TEXT NOT NULL,
-                is_public_to_employers INTEGER NOT NULL DEFAULT 0,
-                version INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE
+              id UUID PRIMARY KEY, owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              title VARCHAR(160) NOT NULL, target_role VARCHAR(160), template_key VARCHAR(80) NOT NULL DEFAULT 'ats-standard',
+              content JSONB NOT NULL DEFAULT '{}'::jsonb, is_public_to_employers BOOLEAN NOT NULL DEFAULT FALSE,
+              version INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
-
-            CREATE INDEX IF NOT EXISTS idx_cvs_owner_id ON cvs(owner_id);
+            CREATE TABLE IF NOT EXISTS employers (
+              id UUID PRIMARY KEY, owner_user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              company_name VARCHAR(240) NOT NULL, website_url TEXT, industry VARCHAR(160), location VARCHAR(200), verified BOOLEAN NOT NULL DEFAULT FALSE
+            );
+            CREATE INDEX IF NOT EXISTS idx_cvs_owner ON cvs(owner_id);
             CREATE INDEX IF NOT EXISTS idx_cvs_public ON cvs(is_public_to_employers);
-            '''
-        )
-
-def row_to_user(row: sqlite3.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {
-        "id": row["id"],
-        "email": row["email"],
-        "full_name": row["full_name"],
-        "password_hash": row["password_hash"],
-        "role": row["role"],
-        "is_active": bool(row["is_active"]),
-        "created_at": row["created_at"],
-    }
-
-def row_to_cv(row: sqlite3.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {
-        "id": row["id"],
-        "owner_id": row["owner_id"],
-        "title": row["title"],
-        "target_role": row["target_role"],
-        "content": json.loads(row["content"]),
-        "is_public_to_employers": bool(row["is_public_to_employers"]),
-        "version": row["version"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
+            ''')
+        conn.commit()
