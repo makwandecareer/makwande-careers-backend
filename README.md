@@ -1,29 +1,22 @@
-# Makwande Careers Recruitment Platform v5
+# Makwande Careers Backend v6 Final
 
-Version 5 extends the existing Version 4.1 backend into a structured recruitment platform.
+Backend-only release. No frontend files are included.
 
-## Added modules
+## Adds
 
-- Employer registration request
-- Employer company profile
-- Employer verification status
-- Job posting and employer job management
-- Candidate job search
-- Candidate saved jobs
-- Job applications
-- Employer application review
-- Candidate shortlisting
-- Candidate invitations
-- Interview scheduling
-- Candidate notifications
-- Candidate dashboard
-- Employer dashboard
-- Admin overview
-- Audit logs
+- Candidate dashboard summary
+- Employer dashboard summary
+- Employer candidate search
+- AI job matching
+- Cover-letter generation
+- Interview preparation
+- Skills-gap analysis
+- Career-roadmap generation
+- API version 6.0.0
 
-## Installation
+## Install
 
-Copy the contents of this ZIP into:
+Copy everything in this package into:
 
 ```text
 E:\Makwande_Careers_Backend\makwande-Careers-backend
@@ -45,26 +38,13 @@ Open:
 http://127.0.0.1:8000/docs
 ```
 
-The API version should be:
+## New endpoints
 
-```text
-5.0.0
-```
-
-## Role note
-
-New users are still registered as candidates by default.
-
-For employer testing, update a test account role in PostgreSQL to:
-
-```text
-employer
-```
-
-For administration testing, update a separate account role to:
-
-```text
-admin
-```
-
-Do not convert your primary candidate test account.
+- `GET /api/dashboard/candidate-v6`
+- `GET /api/dashboard/employer-v6`
+- `GET /api/employer/candidate-search-v6`
+- `POST /api/ai-recruiter/job-match`
+- `POST /api/career/cover-letter-v6`
+- `POST /api/career/interview-prep-v6`
+- `POST /api/career/skills-gap-v6`
+- `POST /api/career/roadmap-v6`

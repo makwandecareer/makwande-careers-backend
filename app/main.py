@@ -9,8 +9,14 @@ from app.database import close_pool, init_database, open_pool
 from app.database_v4 import init_v4_database
 from app.database_v4_1 import init_v4_1_database
 from app.database_v5 import init_v5_database
-from app.routes import auth, platform, structured
-from app.routes import ai_cv_v4_1, recruitment_v5
+from app.routes import (
+    ai_cv_v4_1,
+    auth,
+    platform,
+    recruitment_v5,
+    structured,
+    v6,
+)
 
 
 @asynccontextmanager
@@ -29,8 +35,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="5.0.0",
-    description="Makwande Careers recruitment, employer, candidate, and AI CV platform",
+    version="6.0.0",
+    description="Makwande Careers full recruitment and AI platform",
     lifespan=lifespan,
     swagger_ui_parameters={
         "persistAuthorization": True,
@@ -58,7 +64,9 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=()"
+    )
 
     return response
 
@@ -67,7 +75,7 @@ async def add_security_headers(request: Request, call_next):
 def root():
     return {
         "name": settings.app_name,
-        "version": "5.0.0",
+        "version": "6.0.0",
         "status": "live",
         "docs": "/docs",
         "health": "/health",
@@ -79,7 +87,7 @@ def health():
     return {
         "status": "ok",
         "service": settings.app_name,
-        "version": "5.0.0",
+        "version": "6.0.0",
     }
 
 
@@ -88,3 +96,4 @@ app.include_router(platform.router, prefix="/api")
 app.include_router(structured.router, prefix="/api")
 app.include_router(ai_cv_v4_1.router, prefix="/api")
 app.include_router(recruitment_v5.router, prefix="/api")
+app.include_router(v6.router, prefix="/api")
