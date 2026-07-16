@@ -1,21 +1,29 @@
-# Makwande Careers AI CV Builder v4.1
+# Makwande Careers Recruitment Platform v5
 
-This package completes the next AI CV Builder milestone without changing your existing authentication, employer portal, jobs, applications, or dashboards.
+Version 5 extends the existing Version 4.1 backend into a structured recruitment platform.
 
-## Added
+## Added modules
 
-- ATS assessment history
-- Saved AI writing revisions
-- Saved generated CV snapshots
-- Graduate, Professional, and Executive export templates
-- DOCX and PDF export by template
-- Safer AI-ready writing service
-- Retrieval endpoints for ATS and AI history
-- API version 4.1.0
+- Employer registration request
+- Employer company profile
+- Employer verification status
+- Job posting and employer job management
+- Candidate job search
+- Candidate saved jobs
+- Job applications
+- Employer application review
+- Candidate shortlisting
+- Candidate invitations
+- Interview scheduling
+- Candidate notifications
+- Candidate dashboard
+- Employer dashboard
+- Admin overview
+- Audit logs
 
 ## Installation
 
-Copy everything in this ZIP into:
+Copy the contents of this ZIP into:
 
 ```text
 E:\Makwande_Careers_Backend\makwande-Careers-backend
@@ -23,7 +31,7 @@ E:\Makwande_Careers_Backend\makwande-Careers-backend
 
 Choose **Replace the files in the destination**.
 
-Then run:
+Run:
 
 ```cmd
 cd E:\Makwande_Careers_Backend\makwande-Careers-backend
@@ -37,27 +45,26 @@ Open:
 http://127.0.0.1:8000/docs
 ```
 
-## New and updated endpoints
+The API version should be:
 
-- `POST /api/ai-cv/generate`
-- `POST /api/ai-cv/ats-score`
-- `GET /api/ai-cv/ats-history`
-- `POST /api/ai-cv/improve-summary`
-- `POST /api/ai-cv/improve-experience`
-- `GET /api/ai-cv/revisions`
-- `GET /api/ai-cv/generated-history`
-- `POST /api/ai-cv/export/docx`
-- `POST /api/ai-cv/export/pdf`
+```text
+5.0.0
+```
 
-## Export templates
+## Role note
 
-Use one of:
+New users are still registered as candidates by default.
 
-- `graduate`
-- `professional`
-- `executive`
-- `ats-standard`
+For employer testing, update a test account role in PostgreSQL to:
 
-## Safety
+```text
+employer
+```
 
-The service never invents qualifications, employment, metrics, dates, or achievements. Generated wording must be reviewed by the user before publication.
+For administration testing, update a separate account role to:
+
+```text
+admin
+```
+
+Do not convert your primary candidate test account.
