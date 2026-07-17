@@ -1,0 +1,7 @@
+Add this import to app/main.py:
+
+from app.routes import profile_source
+
+Add this router registration after the existing routers:
+
+app.include_router(profile_source.router, prefix="/api")

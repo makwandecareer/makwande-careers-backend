@@ -1,0 +1,7 @@
+Add this import near your other route imports:
+
+from app.routes import cv_studio
+
+Add this registration near your other app.include_router lines:
+
+app.include_router(cv_studio.router, prefix="/api")

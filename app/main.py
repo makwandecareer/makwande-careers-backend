@@ -1,3 +1,5 @@
+from app.routes import cv_versions
+from app.routes import profile_source
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -97,3 +99,5 @@ app.include_router(structured.router, prefix="/api")
 app.include_router(ai_cv_v4_1.router, prefix="/api")
 app.include_router(recruitment_v5.router, prefix="/api")
 app.include_router(v6.router, prefix="/api")
+app.include_router(profile_source.router, prefix="/api")
+app.include_router(cv_versions.router, prefix="/api")

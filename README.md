@@ -1,50 +1,46 @@
-# Makwande Careers Backend v6 Final
+# Makwande Careers AI Career Engine v1
 
-Backend-only release. No frontend files are included.
+Backend patch for FastAPI using the OpenAI Responses API and structured outputs.
 
-## Adds
+## Features
 
-- Candidate dashboard summary
-- Employer dashboard summary
-- Employer candidate search
-- AI job matching
-- Cover-letter generation
-- Interview preparation
+- Career roadmap generation
 - Skills-gap analysis
-- Career-roadmap generation
-- API version 6.0.0
+- Interview preparation
+- Cover-letter generation
+- Professional-summary improvement
+- Experience rewriting
+- Job-match analysis
+- Structured JSON responses
+- Uses the authenticated user's source-of-truth profile
+- OpenAI API key remains server-side
 
 ## Install
 
-Copy everything in this package into:
+1. Copy the supplied `app` folder into the backend project.
+2. Add `openai>=2.0.0` to `requirements.txt`.
+3. Add these environment variables:
 
-```text
-E:\Makwande_Careers_Backend\makwande-Careers-backend
+```env
+OPENAI_API_KEY=your-secret-key
+OPENAI_MODEL=gpt-5.6
 ```
 
-Choose **Replace the files in the destination**.
+4. In `app/main.py` add:
 
-Run:
-
-```cmd
-cd E:\Makwande_Careers_Backend\makwande-Careers-backend
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+```python
+from app.routes import ai_career_engine
+app.include_router(ai_career_engine.router, prefix="/api")
 ```
 
-Open:
+5. Restart the backend.
 
-```text
-http://127.0.0.1:8000/docs
-```
+## Endpoints
 
-## New endpoints
-
-- `GET /api/dashboard/candidate-v6`
-- `GET /api/dashboard/employer-v6`
-- `GET /api/employer/candidate-search-v6`
-- `POST /api/ai-recruiter/job-match`
-- `POST /api/career/cover-letter-v6`
-- `POST /api/career/interview-prep-v6`
-- `POST /api/career/skills-gap-v6`
-- `POST /api/career/roadmap-v6`
+- `POST /api/ai-career/roadmap`
+- `POST /api/ai-career/skills-gap`
+- `POST /api/ai-career/interview-prep`
+- `POST /api/ai-career/cover-letter`
+- `POST /api/ai-career/improve-summary`
+- `POST /api/ai-career/improve-experience`
+- `POST /api/ai-career/job-match`
