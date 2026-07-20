@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_current_user
 from app.routes.profile_source import profile_source_of_truth
-from app.schemas.ai_career import (
+from app.schemas_ai_career import (
     CareerRoadmapRequest,
     CareerRoadmapResponse,
     CoverLetterRequest,
@@ -23,7 +23,7 @@ from app.schemas.ai_career import (
 from app.services.openai_career_engine import CareerEngineError, OpenAICareerEngine
 
 
-router = APIRouter(prefix="/ai-career", tags=["AI Career Engine"])
+router = APIRouter(prefix="/ai-career", tags=["OpenAI Career Engine"])
 
 
 def engine() -> OpenAICareerEngine:

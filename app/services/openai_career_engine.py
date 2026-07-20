@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import TypeVar
 
 from openai import OpenAI
 from pydantic import BaseModel
+
+from app.config import settings
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -16,12 +17,12 @@ class CareerEngineError(RuntimeError):
 
 class OpenAICareerEngine:
     def __init__(self) -> None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.openai_api_key.strip()
         if not api_key:
             raise CareerEngineError("OPENAI_API_KEY is not configured")
 
         self.client = OpenAI(api_key=api_key)
-        self.model = os.getenv("OPENAI_MODEL", "gpt-5.6")
+        self.model = settings.openai_model
 
     def structured(
         self,

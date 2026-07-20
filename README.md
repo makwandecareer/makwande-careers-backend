@@ -23,7 +23,7 @@ Backend patch for FastAPI using the OpenAI Responses API and structured outputs.
 
 ```env
 OPENAI_API_KEY=your-secret-key
-OPENAI_MODEL=gpt-5.6
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 4. In `app/main.py` add:
