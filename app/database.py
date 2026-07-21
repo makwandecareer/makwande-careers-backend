@@ -56,33 +56,7 @@ def init_database():
               id UUID PRIMARY KEY, owner_user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
               company_name VARCHAR(240) NOT NULL, website_url TEXT, industry VARCHAR(160), location VARCHAR(200), verified BOOLEAN NOT NULL DEFAULT FALSE
             );
-            CREATE TABLE IF NOT EXISTS payment_transactions (
-              reference VARCHAR(160) PRIMARY KEY,
-              user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-              email VARCHAR(320) NOT NULL,
-              plan_key VARCHAR(80) NOT NULL,
-              expected_amount INTEGER NOT NULL,
-              currency VARCHAR(10) NOT NULL DEFAULT 'ZAR',
-              status VARCHAR(40) NOT NULL DEFAULT 'pending',
-              paystack_transaction_id BIGINT,
-              paid_at TIMESTAMPTZ,
-              raw_event JSONB,
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS subscriptions (
-              user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-              plan_key VARCHAR(80) NOT NULL,
-              status VARCHAR(30) NOT NULL DEFAULT 'active',
-              starts_at TIMESTAMPTZ NOT NULL,
-              expires_at TIMESTAMPTZ NOT NULL,
-              payment_reference VARCHAR(160) UNIQUE NOT NULL REFERENCES payment_transactions(reference),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
             CREATE INDEX IF NOT EXISTS idx_cvs_owner ON cvs(owner_id);
             CREATE INDEX IF NOT EXISTS idx_cvs_public ON cvs(is_public_to_employers);
-            CREATE INDEX IF NOT EXISTS idx_payment_transactions_user ON payment_transactions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_payment_transactions_status ON payment_transactions(status);
-            CREATE INDEX IF NOT EXISTS idx_subscriptions_expiry ON subscriptions(expires_at);
             ''')
         conn.commit()
