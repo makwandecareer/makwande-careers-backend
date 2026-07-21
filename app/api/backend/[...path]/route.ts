@@ -1,7 +1,21 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND = process.env.BACKEND_API_URL!;
+function getBackendTarget(path: string[], search: string) {
+  const configuredBackend = process.env.BACKEND_API_URL?.trim().replace(/\/$/, "");
+
+  if (!configuredBackend) {
+    throw new Error("BACKEND_API_URL is not configured.");
+  }
+
+  let backendPath = path.join("/").replace(/^\/+/, "");
+
+  if (configuredBackend.endsWith("/api") && backendPath.startsWith("api/")) {
+    backendPath = backendPath.slice(4);
+  }
+
+  return `${configuredBackend}/${backendPath}${search}`;
+}
 
 async function proxy(
   request: NextRequest,
@@ -9,7 +23,15 @@ async function proxy(
 ) {
   const { path } = await context.params;
   const token = (await cookies()).get("makwande_access_token")?.value;
-  const target = `${BACKEND}/${path.join("/")}${request.nextUrl.search}`;
+  let target: string;
+  try {
+    target = getBackendTarget(path, request.nextUrl.search);
+  } catch (error) {
+    return NextResponse.json(
+      { detail: error instanceof Error ? error.message : "Backend configuration is invalid." },
+      { status: 500 },
+    );
+  }
 
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
@@ -21,12 +43,20 @@ async function proxy(
       ? undefined
       : await request.arrayBuffer();
 
-  const backendResponse = await fetch(target, {
-    method: request.method,
-    headers,
-    body,
-    cache: "no-store",
-  });
+  let backendResponse: Response;
+  try {
+    backendResponse = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: "The frontend could not connect to the backend API." },
+      { status: 502 },
+    );
+  }
 
   const responseHeaders = new Headers();
   for (const key of ["content-type", "content-disposition"]) {

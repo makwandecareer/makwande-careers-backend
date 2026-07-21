@@ -398,8 +398,14 @@ async def initialize_payment(
         ) from exc
 
     except PaystackRequestError as exc:
+        upstream_status = exc.status_code or status.HTTP_502_BAD_GATEWAY
+        safe_status = (
+            upstream_status
+            if 400 <= upstream_status < 600
+            else status.HTTP_502_BAD_GATEWAY
+        )
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=safe_status,
             detail=str(exc),
         ) from exc
 
