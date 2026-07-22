@@ -220,6 +220,32 @@ def update_notification(
     return row
 
 
+@router.put("/candidate/notifications", tags=["Candidate Dashboard"])
+def mark_all_notifications_read(user=Depends(get_current_user)):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE notifications SET is_read=TRUE WHERE user_id=%s AND is_read=FALSE",
+                (user["id"],),
+            )
+            count = cursor.rowcount
+        connection.commit()
+    return {"updated": count}
+
+
+@router.delete("/candidate/notifications/read", tags=["Candidate Dashboard"])
+def delete_read_notifications(user=Depends(get_current_user)):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM notifications WHERE user_id=%s AND is_read=TRUE",
+                (user["id"],),
+            )
+            count = cursor.rowcount
+        connection.commit()
+    return {"deleted": count}
+
+
 @router.post("/employer/invitations", status_code=201, tags=["Employer Portal"])
 def invite_candidate(
     payload: InvitationCreate,

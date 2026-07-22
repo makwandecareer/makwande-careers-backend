@@ -13,6 +13,7 @@ from app.database import close_pool, init_database, open_pool
 from app.database_v4 import init_v4_database
 from app.database_v4_1 import init_v4_1_database
 from app.database_v5 import init_v5_database
+from app.database_account import init_account_database
 from app.routes import (
     ai_career_engine,
     ai_cv_v4_1,
@@ -21,6 +22,7 @@ from app.routes import (
     recruitment_v5,
     structured,
     v6,
+    account,
 )
 
 
@@ -31,6 +33,7 @@ async def lifespan(_app: FastAPI):
     init_v4_database()
     init_v4_1_database()
     init_v5_database()
+    init_account_database()
 
     try:
         yield
@@ -107,3 +110,4 @@ app.include_router(profile_source.router, prefix="/api")
 app.include_router(cv_versions.router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(account.router, prefix="/api")

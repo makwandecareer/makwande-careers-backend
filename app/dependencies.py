@@ -1,23 +1,4 @@
 import jwt
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-from app.database import get_connection
-from app.security import decode_token
-
-
-bearer_security = HTTPBearer(auto_error=False)
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_security),
-) -> dict:
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-        )
-import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -53,18 +34,27 @@ def get_current_user(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT *
-                FROM users
-                WHERE id = %s
+                SELECT u.*
+                FROM users u
+                JOIN user_sessions s ON s.user_id=u.id
+                WHERE u.id=%s AND s.token_jti=%s
+                  AND s.revoked_at IS NULL AND s.expires_at>NOW()
                 """,
-                (user_id,),
+                (user_id, payload["jti"]),
             )
             user = cursor.fetchone()
+
+            if user is not None:
+                cursor.execute(
+                    "UPDATE user_sessions SET last_seen_at=NOW() WHERE token_jti=%s",
+                    (payload["jti"],),
+                )
+        connection.commit()
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account not found",
+            detail="Session is invalid, expired, or signed out",
         )
 
     if not user["is_active"]:
@@ -73,7 +63,9 @@ def get_current_user(
             detail="User account is disabled",
         )
 
-    return user
+    authenticated_user = dict(user)
+    authenticated_user["_token_payload"] = payload
+    return authenticated_user
 
 
 # Compatibility name used by platform.py
