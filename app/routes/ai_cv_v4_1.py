@@ -21,9 +21,13 @@ from app.schemas_ai_cv_v4_1 import (
     GeneratedCVResponse,
     ImproveExperienceRequest,
     ImproveSummaryRequest,
+    ImportCVRequest,
+    CVImportDraft,
+    ImportedContact,
     RevisionAcceptRequest,
     TextImprovementResponse,
 )
+from app.services.openai_career_engine import CareerEngineError, OpenAICareerEngine
 from app.services.cv_builder_v4_1 import (
     calculate_ats,
     export_docx,
@@ -37,6 +41,111 @@ router = APIRouter(prefix="/ai-cv", tags=["AI CV Builder"])
 MAX_CV_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_EXTRACTED_CHARACTERS = 150_000
 SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
+
+def _fallback_import_draft(
+    text: str,
+    user: dict,
+    target_role: str,
+) -> CVImportDraft:
+    email_match = re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)
+    phone_match = re.search(r"(?:\+?\d[\d\s()-]{7,}\d)", text)
+    linkedin_match = re.search(r"https?://(?:www\.)?linkedin\.com/in/[^\s]+", text, re.I)
+    years = [int(value) for value in re.findall(r"\b((?:19|20)\d{2})\b", text)]
+    span = max(years) - min(years) if len(years) >= 2 else 0
+
+    if re.search(r"\b(?:chief|ceo|cfo|coo|executive director|vice president)\b", text, re.I):
+        level = "executive"
+        template = "executive"
+    elif span >= 10 or re.search(r"\b(?:head of|director|senior manager)\b", text, re.I):
+        level = "senior"
+        template = "professional"
+    elif span >= 4:
+        level = "mid-career"
+        template = "professional"
+    elif re.search(r"\b(?:student|graduate|matric|internship)\b", text, re.I):
+        level = "graduate"
+        template = "graduate"
+    else:
+        level = "early-career"
+        template = "ats-standard"
+
+    questions_by_level = {
+        "graduate": [
+            "Which academic projects, practical assignments or research best demonstrate your ability?",
+            "Have you completed internships, volunteer work, leadership activities or part-time work?",
+            "Which software, tools, laboratory methods or technical skills can you use confidently?",
+        ],
+        "early-career": [
+            "What results have you delivered in internships or your first roles?",
+            "Which tools and job-specific skills can you demonstrate with evidence?",
+            "What responsibilities have you taken ownership of independently?",
+        ],
+        "mid-career": [
+            "Which achievements improved revenue, cost, quality, safety, delivery or customer outcomes?",
+            "What projects, systems or teams have you led?",
+            "What measurable scope—budget, team size, volume or geography—can you verify?",
+        ],
+        "senior": [
+            "What strategic programmes and transformations have you led?",
+            "What team sizes, budgets, regions and executive stakeholders were in your scope?",
+            "Which quantified business outcomes best demonstrate your leadership impact?",
+        ],
+        "executive": [
+            "What enterprise strategy, governance or board-level responsibilities can you verify?",
+            "What P&L, workforce, portfolio or geographic scale have you led?",
+            "Which transformations created measurable organisational value?",
+        ],
+    }
+
+    return CVImportDraft(
+        candidate_level=level,
+        suggested_template=template,
+        personal_details=ImportedContact(
+            full_name=user.get("full_name", ""),
+            email=email_match.group(0) if email_match else user.get("email", ""),
+            phone=phone_match.group(0).strip() if phone_match else "",
+            linkedin_url=linkedin_match.group(0) if linkedin_match else "",
+        ),
+        professional_title=target_role,
+        professional_summary="",
+        missing_details=[
+            "Review the imported information and add verified achievements.",
+            "Confirm employment and education dates before generating the final CV.",
+        ],
+        follow_up_questions=questions_by_level[level],
+        facts_to_verify=["Automated extraction was limited; verify all imported facts."],
+    )
+
+
+def _build_import_draft(
+    text: str,
+    user: dict,
+    target_role: str,
+    job_description: str,
+) -> tuple[CVImportDraft, str]:
+    try:
+        draft = OpenAICareerEngine().structured(
+            schema=CVImportDraft,
+            task=(
+                "Extract the candidate's existing CV into a structured draft. "
+                "Preserve only facts explicitly supported by the CV. Classify the career level, "
+                "select an appropriate template, identify missing information and ask concise "
+                "level-specific follow-up questions. Never invent achievements, dates or metrics."
+            ),
+            profile_bundle={
+                "account_name": user.get("full_name"),
+                "account_email": user.get("email"),
+            },
+            request_data={
+                "extracted_cv": text,
+                "target_role": target_role,
+                "job_description": job_description,
+            },
+        )
+        return draft, "openai-structured"
+    except CareerEngineError:
+        return _fallback_import_draft(text, user, target_role), "safe-fallback"
 
 
 def _clean_extracted_text(value: str) -> str:
@@ -77,7 +186,7 @@ async def analyse_uploaded_cv(
     file: UploadFile = File(...),
     target_role: str = Form(default=""),
     job_description: str = Form(default=""),
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
     """Extract a CV securely in memory for the authenticated user's ATS analysis."""
     filename = Path(file.filename or "uploaded-cv").name
@@ -118,6 +227,13 @@ async def analyse_uploaded_cv(
             ),
         )
 
+    draft, generation_mode = _build_import_draft(
+        extracted_text,
+        user,
+        target_role.strip()[:200],
+        job_description.strip()[:20_000],
+    )
+
     return {
         "filename": filename,
         "size": len(content),
@@ -128,7 +244,49 @@ async def analyse_uploaded_cv(
         "target_role": target_role.strip()[:200],
         "job_description_received": bool(job_description.strip()),
         "stored": False,
+        "draft": draft.model_dump(),
+        "generation_mode": generation_mode,
     }
+
+
+@router.post("/import-draft", response_model=GeneratedCVResponse)
+def save_imported_cv_draft(
+    payload: ImportCVRequest,
+    user=Depends(get_current_user),
+):
+    snapshot_id = str(uuid4())
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                '''
+                INSERT INTO generated_cv_snapshots (
+                    id,user_id,cv_id,title,target_role,template_key,content
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ''',
+                (
+                    snapshot_id,
+                    user["id"],
+                    None,
+                    payload.title,
+                    payload.target_role,
+                    payload.template_key,
+                    json.dumps(payload.content, default=str),
+                ),
+            )
+        connection.commit()
+
+    return GeneratedCVResponse(
+        title=payload.title,
+        target_role=payload.target_role,
+        template_key=payload.template_key,
+        content=payload.content,
+        warnings=[
+            "This CV was created from imported information.",
+            "Review every fact, date and achievement before submitting it.",
+        ],
+        snapshot_id=snapshot_id,
+    )
 
 
 @router.post("/generate", response_model=GeneratedCVResponse)

@@ -73,3 +73,75 @@ class ExportCVRequest(BaseModel):
 
 class RevisionAcceptRequest(BaseModel):
     accepted: bool = True
+
+
+CandidateLevel = Literal[
+    "graduate",
+    "early-career",
+    "mid-career",
+    "senior",
+    "executive",
+]
+
+
+class ImportedContact(BaseModel):
+    full_name: str = Field(default="", max_length=200)
+    email: str = Field(default="", max_length=320)
+    phone: str = Field(default="", max_length=80)
+    location: str = Field(default="", max_length=200)
+    linkedin_url: str = Field(default="", max_length=500)
+    portfolio_url: str = Field(default="", max_length=500)
+
+
+class ImportedExperience(BaseModel):
+    company: str = Field(default="", max_length=240)
+    job_title: str = Field(default="", max_length=200)
+    start_date: str = Field(default="", max_length=40)
+    end_date: str = Field(default="", max_length=40)
+    description: str = Field(default="", max_length=6000)
+    achievements: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ImportedEducation(BaseModel):
+    institution: str = Field(default="", max_length=240)
+    qualification: str = Field(default="", max_length=240)
+    field_of_study: str = Field(default="", max_length=240)
+    start_date: str = Field(default="", max_length=40)
+    end_date: str = Field(default="", max_length=40)
+    description: str = Field(default="", max_length=3000)
+
+
+class ImportedProject(BaseModel):
+    name: str = Field(default="", max_length=240)
+    description: str = Field(default="", max_length=4000)
+    technologies: list[str] = Field(default_factory=list, max_length=30)
+
+
+class ImportedCertification(BaseModel):
+    name: str = Field(default="", max_length=240)
+    issuer: str = Field(default="", max_length=240)
+    date: str = Field(default="", max_length=40)
+
+
+class CVImportDraft(BaseModel):
+    candidate_level: CandidateLevel
+    suggested_template: TemplateKey = "ats-standard"
+    personal_details: ImportedContact
+    professional_title: str = Field(default="", max_length=200)
+    professional_summary: str = Field(default="", max_length=3000)
+    skills: list[str] = Field(default_factory=list, max_length=60)
+    experience: list[ImportedExperience] = Field(default_factory=list, max_length=30)
+    education: list[ImportedEducation] = Field(default_factory=list, max_length=20)
+    projects: list[ImportedProject] = Field(default_factory=list, max_length=20)
+    certifications: list[ImportedCertification] = Field(default_factory=list, max_length=30)
+    languages: list[str] = Field(default_factory=list, max_length=30)
+    missing_details: list[str] = Field(default_factory=list, max_length=30)
+    follow_up_questions: list[str] = Field(default_factory=list, max_length=20)
+    facts_to_verify: list[str] = Field(default_factory=list, max_length=30)
+
+
+class ImportCVRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    target_role: str = Field(min_length=2, max_length=160)
+    template_key: TemplateKey = "ats-standard"
+    content: dict[str, Any]
