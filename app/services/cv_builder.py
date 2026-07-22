@@ -3,7 +3,7 @@ import io, re
 from collections import Counter
 from typing import Any
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Mm, Pt
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -71,7 +71,7 @@ def build_generated_cv(*, user:dict[str,Any], profile:dict[str,Any]|None, educat
     return GeneratedCVResponse(title=f"{user['full_name']} - {target_role} CV",target_role=target_role,template_key=template_key,content=content,warnings=summary.warnings)
 
 def export_docx(cv:dict[str,Any])->bytes:
-    doc=Document(); doc.styles["Normal"].font.name="Arial"; doc.styles["Normal"].font.size=Pt(10)
+    doc=Document(); section=doc.sections[0]; section.page_width=Mm(210); section.page_height=Mm(297); doc.styles["Normal"].font.name="Arial"; doc.styles["Normal"].font.size=Pt(10)
     p=cv.get("personal_details",{}); doc.add_heading(p.get("full_name","Curriculum Vitae"),0)
     contact=" | ".join(str(v) for v in (p.get("email"),p.get("phone"),p.get("location")) if v)
     if contact: doc.add_paragraph(contact)

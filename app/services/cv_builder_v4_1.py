@@ -8,7 +8,7 @@ from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Mm, Pt
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -118,6 +118,8 @@ def calculate_ats(
 def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
     document = Document()
     section = document.sections[0]
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
     section.top_margin = Inches(0.55)
     section.bottom_margin = Inches(0.55)
     section.left_margin = Inches(0.65)
