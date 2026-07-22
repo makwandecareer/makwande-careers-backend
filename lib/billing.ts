@@ -14,13 +14,13 @@ export type PlansResponse = {
 };
 
 export type InitializePaymentResponse = {
-  plan: PlanId;
+  plan_code: string;
   reference: string;
-  payment: {
-    authorization_url?: string;
-    access_code?: string;
-    reference?: string;
-  };
+  authorization_url: string;
+  access_code?: string | null;
+  amount: number;
+  display_amount: number;
+  currency: string;
 };
 
 export type VerifyPaymentResponse = {

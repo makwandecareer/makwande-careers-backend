@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 from typing import Any
 from urllib.parse import quote
@@ -11,7 +13,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-PAYSTACK_BASE_URL = "https://api.paystack.co"
+logger = logging.getLogger(__name__)
+
+PAYSTACK_BASE_URL = os.getenv(
+    "PAYSTACK_BASE_URL",
+    "https://api.paystack.co",
+).strip().rstrip("/")
 REQUEST_TIMEOUT_SECONDS = 30.0
 
 
@@ -39,6 +46,7 @@ def get_paystack_secret_key() -> str:
         "PAYSTACK_SECRET_KEY",
         "",
     ).strip()
+    secret_key = secret_key.strip("'\"").strip()
 
     if not secret_key:
         raise PaystackConfigurationError(
@@ -129,7 +137,10 @@ async def initialize_transaction(
     }
 
     if metadata:
-        payload["metadata"] = metadata
+        payload["metadata"] = json.dumps(
+            metadata,
+            default=str,
+        )
 
     try:
         async with httpx.AsyncClient(
@@ -173,6 +184,12 @@ async def initialize_transaction(
         message = extract_error_message(
             response_data,
             "Paystack rejected the transaction request.",
+        )
+
+        logger.error(
+            "Paystack initialization rejected. HTTP status=%s, message=%s",
+            response.status_code,
+            message,
         )
 
         raise PaystackRequestError(
@@ -268,6 +285,12 @@ async def verify_transaction(
         message = extract_error_message(
             response_data,
             "Paystack rejected the verification request.",
+        )
+
+        logger.error(
+            "Paystack verification rejected. HTTP status=%s, message=%s",
+            response.status_code,
+            message,
         )
 
         raise PaystackRequestError(

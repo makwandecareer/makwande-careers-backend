@@ -30,8 +30,8 @@ export default function BillingPage() {
     try {
       const callbackUrl = `${window.location.origin}/payment/callback`;
       const response = await initializePayment(plan, callbackUrl);
-      const authorizationUrl = response.payment.authorization_url;
-      if (!authorizationUrl) throw new Error("Paystack did not return a checkout URL.");
+      const authorizationUrl = response.authorization_url;
+      if (!authorizationUrl?.startsWith("https://")) throw new Error("Paystack did not return a valid checkout URL.");
       window.location.assign(authorizationUrl);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not start checkout.");
