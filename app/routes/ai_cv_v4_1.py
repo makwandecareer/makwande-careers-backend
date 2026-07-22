@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+from io import BytesIO
+from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from docx import Document
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
+from pypdf import PdfReader
 
 from app.database import get_connection
 from app.dependencies import get_current_user
@@ -29,6 +33,102 @@ from app.services.cv_builder_v4_1 import (
 )
 
 router = APIRouter(prefix="/ai-cv", tags=["AI CV Builder"])
+
+MAX_CV_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_EXTRACTED_CHARACTERS = 150_000
+SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
+
+def _clean_extracted_text(value: str) -> str:
+    value = value.replace("\x00", "")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in value.splitlines()]
+    return "\n".join(line for line in lines if line)[:MAX_EXTRACTED_CHARACTERS]
+
+
+def _extract_pdf(content: bytes) -> tuple[str, int]:
+    try:
+        reader = PdfReader(BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        return _clean_extracted_text(text), len(reader.pages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="The PDF could not be read. Upload a text-based PDF or DOCX file.",
+        ) from exc
+
+
+def _extract_docx(content: bytes) -> str:
+    try:
+        document = Document(BytesIO(content))
+        blocks = [paragraph.text for paragraph in document.paragraphs]
+        for table in document.tables:
+            for row in table.rows:
+                blocks.append(" | ".join(cell.text for cell in row.cells))
+        return _clean_extracted_text("\n".join(blocks))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="The DOCX file could not be read. Export it again and retry.",
+        ) from exc
+
+
+@router.post("/intake-analysis")
+async def analyse_uploaded_cv(
+    file: UploadFile = File(...),
+    target_role: str = Form(default=""),
+    job_description: str = Form(default=""),
+    _user=Depends(get_current_user),
+):
+    """Extract a CV securely in memory for the authenticated user's ATS analysis."""
+    filename = Path(file.filename or "uploaded-cv").name
+    extension = Path(filename).suffix.lower()
+
+    if extension not in SUPPORTED_CV_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail="Upload a PDF, DOCX or TXT CV. Legacy DOC files must be saved as DOCX.",
+        )
+
+    content = await file.read(MAX_CV_UPLOAD_BYTES + 1)
+    await file.close()
+
+    if not content:
+        raise HTTPException(status_code=422, detail="The uploaded CV is empty.")
+    if len(content) > MAX_CV_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="The CV must be 10 MB or smaller.")
+
+    page_count = None
+    if extension == ".pdf":
+        extracted_text, page_count = _extract_pdf(content)
+    elif extension == ".docx":
+        extracted_text = _extract_docx(content)
+    else:
+        try:
+            extracted_text = _clean_extracted_text(content.decode("utf-8-sig"))
+        except UnicodeDecodeError:
+            extracted_text = _clean_extracted_text(content.decode("latin-1"))
+
+    word_count = len(re.findall(r"\b[\w+#.-]+\b", extracted_text))
+    if word_count < 30:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Very little readable text was found. If this is a scanned PDF, "
+                "export it with selectable text or upload a DOCX version."
+            ),
+        )
+
+    return {
+        "filename": filename,
+        "size": len(content),
+        "content_type": file.content_type or "application/octet-stream",
+        "text": extracted_text,
+        "word_count": word_count,
+        "page_count": page_count,
+        "target_role": target_role.strip()[:200],
+        "job_description_received": bool(job_description.strip()),
+        "stored": False,
+    }
 
 
 @router.post("/generate", response_model=GeneratedCVResponse)
