@@ -1,41 +1,46 @@
-from app.billing.routes import router as billing_router
-from app.routes import cv_versions
-from app.integrations.router import router as integrations_router
-from app.routes import profile_source
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.billing.routes import router as billing_router
 from app.config import settings
 from app.database import close_pool, init_database, open_pool
+from app.database_account import init_account_database
+from app.database_employer import init_employer_database
 from app.database_v4 import init_v4_database
 from app.database_v4_1 import init_v4_1_database
 from app.database_v5 import init_v5_database
-from app.database_account import init_account_database
+from app.integrations.router import router as integrations_router
+
 from app.routes import (
+    account,
     admin,
     admin_analytics,
     ai_career_engine,
     ai_cv_v4_1,
     auth,
+    cv_versions,
+    employer,
     platform,
+    profile_source,
     recruitment_v5,
     structured,
     v6,
-    account,
 )
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     open_pool()
+
     init_database()
     init_v4_database()
     init_v4_1_database()
     init_v5_database()
     init_account_database()
+    init_employer_database()
 
     try:
         yield
@@ -60,14 +65,29 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+    ],
 )
 
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID", str(uuid4()))
+    request_id = request.headers.get(
+        "X-Request-ID",
+        str(uuid4()),
+    )
+
     response = await call_next(request)
 
     response.headers["X-Request-ID"] = request_id
@@ -114,3 +134,4 @@ app.include_router(integrations_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(account.router, prefix="/api")
 app.include_router(admin_analytics.router, prefix="/api")
+app.include_router(employer.router, prefix="/api")
