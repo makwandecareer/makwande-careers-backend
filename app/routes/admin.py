@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.database import get_connection
 from app.dependencies import get_current_user
 
-router = APIRouter(prefix="/admin", tags=["Admin Dashboard"])
+router = APIRouter(prefix="/admin", tags=["Admin Management"])
 
 
 def serialize(value: Any) -> Any:
@@ -20,6 +20,10 @@ def serialize(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
     return value
+
+
+def serialized_row(row: Any) -> dict[str, Any]:
+    return {key: serialize(value) for key, value in dict(row).items()}
 
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
@@ -46,19 +50,27 @@ def dashboard_metrics(cursor) -> dict[str, Any]:
         """
         SELECT
             (SELECT COUNT(*) FROM users) AS total_users,
+            (SELECT COUNT(*) FROM users WHERE is_active = TRUE) AS active_users,
+            (SELECT COUNT(*) FROM users WHERE is_active = FALSE) AS suspended_users,
             (
                 SELECT COUNT(*)
                 FROM subscriptions
-                WHERE status = 'active'
+                WHERE status::text = 'active'
                   AND starts_at <= CURRENT_TIMESTAMP
                   AND expires_at > CURRENT_TIMESTAMP
             ) AS active_subscriptions,
             (
                 SELECT COALESCE(SUM(expected_amount), 0)
                 FROM payment_transactions
-                WHERE status IN ('success', 'successful', 'paid')
+                WHERE status::text IN ('success', 'successful', 'paid')
                   AND COALESCE(paid_at, created_at) >= date_trunc('month', CURRENT_TIMESTAMP)
             ) AS monthly_revenue_cents,
+            (
+                SELECT COALESCE(SUM(expected_amount), 0)
+                FROM payment_transactions
+                WHERE status::text IN ('success', 'successful', 'paid')
+                  AND COALESCE(paid_at, created_at) >= date_trunc('day', CURRENT_TIMESTAMP)
+            ) AS daily_revenue_cents,
             (SELECT COUNT(*) FROM cvs) AS cvs_created,
             (SELECT COUNT(*) FROM ats_assessments) AS ats_analyses,
             (
@@ -70,12 +82,60 @@ def dashboard_metrics(cursor) -> dict[str, Any]:
     row = cursor.fetchone() or {}
     return {
         "total_users": int(row.get("total_users") or 0),
+        "active_users": int(row.get("active_users") or 0),
+        "suspended_users": int(row.get("suspended_users") or 0),
         "active_subscriptions": int(row.get("active_subscriptions") or 0),
         "monthly_revenue": float(row.get("monthly_revenue_cents") or 0) / 100,
+        "daily_revenue": float(row.get("daily_revenue_cents") or 0) / 100,
         "cvs_created": int(row.get("cvs_created") or 0),
         "ats_analyses": int(row.get("ats_analyses") or 0),
         "ai_sessions": int(row.get("ai_sessions") or 0),
     }
+
+
+def load_user_enrichment(cursor, user_ids: list[str]) -> tuple[dict[str, str], dict[str, Any]]:
+    plans: dict[str, str] = {}
+    last_active: dict[str, Any] = {}
+
+    if not user_ids:
+        return plans, last_active
+
+    cursor.execute(
+        """
+        SELECT DISTINCT ON (s.user_id)
+            s.user_id,
+            s.plan_key::text AS plan
+        FROM subscriptions s
+        WHERE s.user_id = ANY(%s::uuid[])
+          AND s.status::text = 'active'
+          AND s.starts_at <= CURRENT_TIMESTAMP
+          AND s.expires_at > CURRENT_TIMESTAMP
+        ORDER BY s.user_id, s.expires_at DESC
+        """,
+        (user_ids,),
+    )
+    plans = {
+        str(row["user_id"]): str(row.get("plan") or "Free")
+        for row in cursor.fetchall()
+    }
+
+    cursor.execute(
+        """
+        SELECT DISTINCT ON (us.user_id)
+            us.user_id,
+            us.last_seen_at
+        FROM user_sessions us
+        WHERE us.user_id = ANY(%s::uuid[])
+        ORDER BY us.user_id, us.last_seen_at DESC
+        """,
+        (user_ids,),
+    )
+    last_active = {
+        str(row["user_id"]): row.get("last_seen_at")
+        for row in cursor.fetchall()
+    }
+
+    return plans, last_active
 
 
 @router.get("/dashboard")
@@ -95,9 +155,83 @@ def admin_overview(_admin: dict = Depends(require_admin)) -> dict[str, Any]:
 def admin_users(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=150),
+    account_status: Literal["active", "suspended"] | None = Query(None, alias="status"),
+    role: Literal["candidate", "employer", "admin"] | None = Query(None),
     _admin: dict = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Load users first, then safely enrich them with plan and session data."""
+    conditions: list[str] = []
+    values: list[Any] = []
+
+    if search:
+        conditions.append("(u.full_name ILIKE %s OR u.email ILIKE %s)")
+        term = f"%{search.strip()}%"
+        values.extend([term, term])
+
+    if account_status:
+        conditions.append("u.is_active = %s")
+        values.append(account_status == "active")
+
+    if role:
+        conditions.append("u.role::text = %s")
+        values.append(role)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM users u
+                {where_clause}
+                """,
+                tuple(values),
+            )
+            total = int((cursor.fetchone() or {}).get("total") or 0)
+
+            cursor.execute(
+                f"""
+                SELECT
+                    u.id,
+                    u.full_name AS name,
+                    u.email,
+                    u.role::text AS role,
+                    CASE WHEN u.is_active THEN 'active' ELSE 'suspended' END AS status,
+                    u.created_at AS joined_at
+                FROM users u
+                {where_clause}
+                ORDER BY u.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple([*values, limit, offset]),
+            )
+            rows = cursor.fetchall()
+            user_ids = [str(row["id"]) for row in rows]
+            plans, last_active = load_user_enrichment(cursor, user_ids)
+
+    users = []
+    for row in rows:
+        record = dict(row)
+        user_id = str(record["id"])
+        record["plan"] = plans.get(user_id, "Free")
+        record["last_active"] = last_active.get(user_id) or record.get("joined_at")
+        users.append({key: serialize(value) for key, value in record.items()})
+
+    return {
+        "users": users,
+        "count": len(users),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/users/{user_id}")
+def admin_user_detail(
+    user_id: str,
+    _admin: dict = Depends(require_admin),
+) -> dict[str, Any]:
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -110,62 +244,20 @@ def admin_users(
                     CASE WHEN u.is_active THEN 'active' ELSE 'suspended' END AS status,
                     u.created_at AS joined_at
                 FROM users u
-                ORDER BY u.created_at DESC
-                LIMIT %s OFFSET %s
+                WHERE u.id = %s
                 """,
-                (limit, offset),
+                (user_id,),
             )
-            rows = cursor.fetchall()
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="User not found.")
 
-            user_ids = [str(row["id"]) for row in rows]
-            plans: dict[str, str] = {}
-            last_active: dict[str, Any] = {}
+            plans, last_active = load_user_enrichment(cursor, [user_id])
 
-            if user_ids:
-                cursor.execute(
-                    """
-                    SELECT DISTINCT ON (s.user_id)
-                        s.user_id,
-                        s.plan_key::text AS plan
-                    FROM subscriptions s
-                    WHERE s.user_id = ANY(%s::uuid[])
-                      AND s.status::text = 'active'
-                      AND s.starts_at <= CURRENT_TIMESTAMP
-                      AND s.expires_at > CURRENT_TIMESTAMP
-                    ORDER BY s.user_id, s.expires_at DESC
-                    """,
-                    (user_ids,),
-                )
-                plans = {
-                    str(row["user_id"]): str(row.get("plan") or "Free")
-                    for row in cursor.fetchall()
-                }
-
-                cursor.execute(
-                    """
-                    SELECT DISTINCT ON (us.user_id)
-                        us.user_id,
-                        us.last_seen_at
-                    FROM user_sessions us
-                    WHERE us.user_id = ANY(%s::uuid[])
-                    ORDER BY us.user_id, us.last_seen_at DESC
-                    """,
-                    (user_ids,),
-                )
-                last_active = {
-                    str(row["user_id"]): row.get("last_seen_at")
-                    for row in cursor.fetchall()
-                }
-
-    users = []
-    for row in rows:
-        record = dict(row)
-        user_id = str(record["id"])
-        record["plan"] = plans.get(user_id, "Free")
-        record["last_active"] = last_active.get(user_id) or record.get("joined_at")
-        users.append({key: serialize(value) for key, value in record.items()})
-
-    return {"users": users, "count": len(users), "limit": limit, "offset": offset}
+    record = dict(row)
+    record["plan"] = plans.get(user_id, "Free")
+    record["last_active"] = last_active.get(user_id) or record.get("joined_at")
+    return serialized_row(record)
 
 
 @router.patch("/users/{user_id}")
@@ -174,55 +266,109 @@ def update_admin_user(
     payload: AdminUserUpdate,
     admin: dict = Depends(require_admin),
 ) -> dict[str, Any]:
-    if str(admin.get("id")) == user_id and payload.status == "suspended":
+    admin_id = str(admin.get("id") or "")
+    if admin_id == user_id and payload.status == "suspended":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot suspend your own administrator account.",
         )
 
+    if admin_id == user_id and payload.role is not None and payload.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove your own administrator role.",
+        )
+
     assignments: list[str] = []
     values: list[Any] = []
+
     if payload.status is not None:
         assignments.append("is_active = %s")
         values.append(payload.status == "active")
+
     if payload.role is not None:
         assignments.append("role = %s")
         values.append(payload.role)
+
     if not assignments:
         raise HTTPException(status_code=400, detail="No user changes were supplied.")
 
     values.append(user_id)
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 UPDATE users
-                SET {', '.join(assignments)}
+                SET {", ".join(assignments)}
                 WHERE id = %s
-                RETURNING id, full_name AS name, email, role::text AS role,
-                          CASE WHEN is_active THEN 'active' ELSE 'suspended' END AS status,
-                          created_at AS joined_at
+                RETURNING
+                    id,
+                    full_name AS name,
+                    email,
+                    role::text AS role,
+                    CASE WHEN is_active THEN 'active' ELSE 'suspended' END AS status,
+                    created_at AS joined_at
                 """,
                 tuple(values),
             )
             updated = cursor.fetchone()
+            if updated is None:
+                raise HTTPException(status_code=404, detail="User not found.")
+
+            plans, last_active = load_user_enrichment(cursor, [user_id])
         connection.commit()
 
-    if updated is None:
-        raise HTTPException(status_code=404, detail="User not found.")
-    return {key: serialize(value) for key, value in dict(updated).items()}
+    record = dict(updated)
+    record["plan"] = plans.get(user_id, "Free")
+    record["last_active"] = last_active.get(user_id) or record.get("joined_at")
+    return serialized_row(record)
 
 
 @router.get("/payments")
 def admin_payments(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    payment_status: Literal["success", "pending", "failed"] | None = Query(None, alias="status"),
+    search: str | None = Query(None, max_length=150),
     _admin: dict = Depends(require_admin),
 ) -> dict[str, Any]:
+    conditions: list[str] = []
+    values: list[Any] = []
+
+    if payment_status == "success":
+        conditions.append("pt.status::text IN ('success','successful','paid')")
+    elif payment_status == "failed":
+        conditions.append("pt.status::text IN ('failed','declined','cancelled','canceled')")
+    elif payment_status == "pending":
+        conditions.append(
+            "pt.status::text NOT IN ('success','successful','paid','failed','declined','cancelled','canceled')"
+        )
+
+    if search:
+        conditions.append(
+            "(pt.reference ILIKE %s OR pt.email ILIKE %s OR u.full_name ILIKE %s OR u.email ILIKE %s)"
+        )
+        term = f"%{search.strip()}%"
+        values.extend([term, term, term, term])
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
+                SELECT COUNT(*) AS total
+                FROM payment_transactions pt
+                LEFT JOIN users u ON u.id = pt.user_id
+                {where_clause}
+                """,
+                tuple(values),
+            )
+            total = int((cursor.fetchone() or {}).get("total") or 0)
+
+            cursor.execute(
+                f"""
                 SELECT
                     pt.reference AS id,
                     COALESCE(u.full_name, pt.email, 'Customer') AS user_name,
@@ -230,25 +376,26 @@ def admin_payments(
                     (pt.expected_amount::numeric / 100.0) AS amount,
                     pt.currency,
                     CASE
-                        WHEN pt.status IN ('success', 'successful', 'paid') THEN 'success'
-                        WHEN pt.status IN ('failed', 'declined', 'cancelled', 'canceled') THEN 'failed'
+                        WHEN pt.status::text IN ('success', 'successful', 'paid') THEN 'success'
+                        WHEN pt.status::text IN ('failed', 'declined', 'cancelled', 'canceled') THEN 'failed'
                         ELSE 'pending'
                     END AS status,
                     pt.reference,
                     COALESCE(pt.paid_at, pt.created_at) AS paid_at
                 FROM payment_transactions pt
                 LEFT JOIN users u ON u.id = pt.user_id
+                {where_clause}
                 ORDER BY COALESCE(pt.paid_at, pt.created_at) DESC
                 LIMIT %s OFFSET %s
                 """,
-                (limit, offset),
+                tuple([*values, limit, offset]),
             )
             rows = cursor.fetchall()
+
     return {
-        "payments": [
-            {key: serialize(value) for key, value in dict(row).items()}
-            for row in rows
-        ],
+        "payments": [serialized_row(row) for row in rows],
+        "count": len(rows),
+        "total": total,
         "limit": limit,
         "offset": offset,
     }
@@ -273,29 +420,50 @@ def admin_activity(
             cursor.execute(
                 """
                 SELECT * FROM (
-                    SELECT 'user-' || u.id::text AS id,
-                           'New user registered' AS title,
-                           u.full_name || ' joined Makwande Careers.' AS description,
-                           u.created_at AS created_at, 'user' AS type
+                    SELECT
+                        'user-' || u.id::text AS id,
+                        'New user registered' AS title,
+                        COALESCE(u.full_name, u.email, 'A user') || ' joined Makwande Careers.' AS description,
+                        u.created_at AS created_at,
+                        'user' AS type
                     FROM users u
+
                     UNION ALL
-                    SELECT 'payment-' || pt.reference AS id,
-                           CASE WHEN pt.status IN ('success','successful','paid') THEN 'Payment completed'
-                                WHEN pt.status IN ('failed','declined','cancelled','canceled') THEN 'Payment failed'
-                                ELSE 'Payment initiated' END AS title,
-                           COALESCE(u.full_name, pt.email, 'A customer') || ' — ' || pt.reference AS description,
-                           COALESCE(pt.paid_at, pt.created_at) AS created_at, 'payment' AS type
-                    FROM payment_transactions pt LEFT JOIN users u ON u.id = pt.user_id
+
+                    SELECT
+                        'payment-' || pt.reference AS id,
+                        CASE
+                            WHEN pt.status::text IN ('success','successful','paid') THEN 'Payment completed'
+                            WHEN pt.status::text IN ('failed','declined','cancelled','canceled') THEN 'Payment failed'
+                            ELSE 'Payment initiated'
+                        END AS title,
+                        COALESCE(u.full_name, pt.email, 'A customer') || ' — ' || pt.reference AS description,
+                        COALESCE(pt.paid_at, pt.created_at) AS created_at,
+                        'payment' AS type
+                    FROM payment_transactions pt
+                    LEFT JOIN users u ON u.id = pt.user_id
+
                     UNION ALL
-                    SELECT 'cv-' || c.id::text AS id, 'CV created' AS title,
-                           COALESCE(u.full_name, 'A user') || ' created “' || c.title || '”.' AS description,
-                           c.created_at AS created_at, 'cv' AS type
-                    FROM cvs c LEFT JOIN users u ON u.id = c.owner_id
+
+                    SELECT
+                        'cv-' || c.id::text AS id,
+                        'CV created' AS title,
+                        COALESCE(u.full_name, 'A user') || ' created “' || c.title || '”.' AS description,
+                        c.created_at AS created_at,
+                        'cv' AS type
+                    FROM cvs c
+                    LEFT JOIN users u ON u.id = c.owner_id
+
                     UNION ALL
-                    SELECT 'security-' || se.id::text AS id, 'Security event' AS title,
-                           COALESCE(u.full_name, 'A user') || ' — ' || se.event_type AS description,
-                           se.created_at AS created_at, 'security' AS type
-                    FROM security_events se LEFT JOIN users u ON u.id = se.user_id
+
+                    SELECT
+                        'security-' || se.id::text AS id,
+                        'Security event' AS title,
+                        COALESCE(u.full_name, 'A user') || ' — ' || se.event_type AS description,
+                        se.created_at AS created_at,
+                        'security' AS type
+                    FROM security_events se
+                    LEFT JOIN users u ON u.id = se.user_id
                 ) activity
                 ORDER BY created_at DESC
                 LIMIT %s
@@ -303,12 +471,8 @@ def admin_activity(
                 (limit,),
             )
             rows = cursor.fetchall()
-    return {
-        "activities": [
-            {key: serialize(value) for key, value in dict(row).items()}
-            for row in rows
-        ]
-    }
+
+    return {"activities": [serialized_row(row) for row in rows]}
 
 
 @router.get("/audit-logs")
