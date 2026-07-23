@@ -15,6 +15,7 @@ from app.database_v4_1 import init_v4_1_database
 from app.database_v5 import init_v5_database
 from app.database_account import init_account_database
 from app.routes import (
+    admin,
     ai_career_engine,
     ai_cv_v4_1,
     auth,
@@ -111,3 +112,4 @@ app.include_router(cv_versions.router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(account.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
