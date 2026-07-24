@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from psycopg.types.json import Jsonb
 
 from app.database import get_connection
 from app.dependencies import get_current_user
@@ -80,6 +81,7 @@ def get_company(user: dict = Depends(get_current_user)):
 @router.put("/company")
 def save_company(payload: CompanyPayload, user: dict = Depends(get_current_user)):
     values = payload.model_dump(mode="json")
+    values["hiring_preferences"] = Jsonb(values["hiring_preferences"])
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -100,6 +102,29 @@ def save_company(payload: CompanyPayload, user: dict = Depends(get_current_user)
     return {"company": serialize(row)}
 
 
+@router.get("/summary")
+def employer_summary(user: dict = Depends(get_current_user)):
+    company = company_for(str(user["id"]))
+    if not company:
+        return {"company": None, "metrics": {"total_jobs": 0, "open_jobs": 0, "draft_jobs": 0, "closed_jobs": 0}, "recent_jobs": []}
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*)::int AS total_jobs,
+                COUNT(*) FILTER (WHERE status='published')::int AS open_jobs,
+                COUNT(*) FILTER (WHERE status='draft')::int AS draft_jobs,
+                COUNT(*) FILTER (WHERE status='closed')::int AS closed_jobs
+                FROM employer_jobs WHERE company_id=%s
+                """,
+                (company["id"],),
+            )
+            metrics = dict(cursor.fetchone())
+            cursor.execute("SELECT * FROM employer_jobs WHERE company_id=%s ORDER BY created_at DESC LIMIT 5", (company["id"],))
+            recent_jobs = [serialize(row) for row in cursor.fetchall()]
+    return {"company": company, "metrics": metrics, "recent_jobs": recent_jobs}
+
+
 @router.get("/jobs")
 def list_jobs(company: dict = Depends(require_company)):
     with get_connection() as connection:
@@ -112,6 +137,7 @@ def list_jobs(company: dict = Depends(require_company)):
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)
 def create_job(payload: JobPayload, user: dict = Depends(get_current_user), company: dict = Depends(require_company)):
     values = payload.model_dump(mode="json")
+    values["screening_questions"] = Jsonb(values["screening_questions"])
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -132,9 +158,55 @@ def create_job(payload: JobPayload, user: dict = Depends(get_current_user), comp
     return {"job": serialize(row)}
 
 
-@router.post("/jobs/{job_id}/{action}")
-def job_action(job_id: UUID, action: Literal["publish", "close"], company: dict = Depends(require_company)):
-    new_status = "published" if action == "publish" else "closed"
+@router.get("/jobs/{job_id}")
+def get_job(job_id: UUID, company: dict = Depends(require_company)):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM employer_jobs WHERE id=%s AND company_id=%s LIMIT 1", (str(job_id), company["id"]))
+            row = cursor.fetchone()
+    if not row:
+        raise HTTPException(404, "Vacancy not found.")
+    return {"job": serialize(row)}
+
+
+@router.put("/jobs/{job_id}")
+def update_job(job_id: UUID, payload: JobPayload, company: dict = Depends(require_company)):
+    values = payload.model_dump(mode="json")
+    values["screening_questions"] = Jsonb(values["screening_questions"])
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE employer_jobs SET
+                title=%(title)s,department=%(department)s,location=%(location)s,workplace_type=%(workplace_type)s,
+                employment_type=%(employment_type)s,seniority_level=%(seniority_level)s,salary_min=%(salary_min)s,
+                salary_max=%(salary_max)s,salary_currency=%(salary_currency)s,salary_visible=%(salary_visible)s,
+                summary=%(summary)s,responsibilities=%(responsibilities)s,requirements=%(requirements)s,
+                skills=%(skills)s,benefits=%(benefits)s,screening_questions=%(screening_questions)s,
+                closing_date=%(closing_date)s,updated_at=CURRENT_TIMESTAMP
+                WHERE id=%(job_id)s AND company_id=%(company_id)s RETURNING *
+                """,
+                {**values, "job_id": str(job_id), "company_id": company["id"]},
+            )
+            row = cursor.fetchone()
+        connection.commit()
+    if not row:
+        raise HTTPException(404, "Vacancy not found.")
+    return {"job": serialize(row)}
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+def delete_job(job_id: UUID, company: dict = Depends(require_company)):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM employer_jobs WHERE id=%s AND company_id=%s RETURNING id", (str(job_id), company["id"]))
+            row = cursor.fetchone()
+        connection.commit()
+    if not row:
+        raise HTTPException(404, "Vacancy not found.")
+
+
+def set_status(job_id: UUID, new_status: Literal["published", "closed"], company: dict):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute("UPDATE employer_jobs SET status=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s AND company_id=%s RETURNING *", (new_status, str(job_id), company["id"]))
@@ -143,6 +215,16 @@ def job_action(job_id: UUID, action: Literal["publish", "close"], company: dict 
     if not row:
         raise HTTPException(404, "Vacancy not found.")
     return {"job": serialize(row)}
+
+
+@router.post("/jobs/{job_id}/publish")
+def publish_job(job_id: UUID, company: dict = Depends(require_company)):
+    return set_status(job_id, "published", company)
+
+
+@router.post("/jobs/{job_id}/close")
+def close_job(job_id: UUID, company: dict = Depends(require_company)):
+    return set_status(job_id, "closed", company)
 
 
 @router.post("/jobs/{job_id}/duplicate", status_code=201)
