@@ -16,13 +16,14 @@ from app.integrations.router import router as integrations_router
 
 from app.routes import (
     account,
-    admin,
     admin_analytics,
     ai_career_engine,
     ai_cv_v4_1,
     auth,
+    candidate_applications,
     cv_versions,
     employer,
+    employer_applications,
     platform,
     profile_source,
     recruitment_v5,
@@ -93,7 +94,9 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Referrer-Policy"] = (
+        "strict-origin-when-cross-origin"
+    )
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=()"
     )
@@ -101,7 +104,11 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-@app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
+@app.api_route(
+    "/",
+    methods=["GET", "HEAD"],
+    tags=["System"],
+)
 def root():
     return {
         "name": settings.app_name,
@@ -135,3 +142,15 @@ app.include_router(billing_router, prefix="/api")
 app.include_router(account.router, prefix="/api")
 app.include_router(admin_analytics.router, prefix="/api")
 app.include_router(employer.router, prefix="/api")
+
+# Candidate recruitment routes
+app.include_router(
+    candidate_applications.router,
+    prefix="/api",
+)
+
+# Employer application management routes
+app.include_router(
+    employer_applications.router,
+    prefix="/api",
+)
