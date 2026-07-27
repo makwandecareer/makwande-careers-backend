@@ -9,6 +9,9 @@ from app.config import settings
 from app.database import close_pool, init_database, open_pool
 from app.database_account import init_account_database
 from app.database_employer import init_employer_database
+from app.database_employer_applications import (
+    init_employer_application_database,
+)
 from app.database_v4 import init_v4_database
 from app.database_v4_1 import init_v4_1_database
 from app.database_v5 import init_v5_database
@@ -42,6 +45,7 @@ async def lifespan(_app: FastAPI):
     init_v5_database()
     init_account_database()
     init_employer_database()
+    init_employer_application_database()
 
     try:
         yield
@@ -143,13 +147,11 @@ app.include_router(account.router, prefix="/api")
 app.include_router(admin_analytics.router, prefix="/api")
 app.include_router(employer.router, prefix="/api")
 
-# Candidate recruitment routes
 app.include_router(
     candidate_applications.router,
     prefix="/api",
 )
 
-# Employer application management routes
 app.include_router(
     employer_applications.router,
     prefix="/api",
