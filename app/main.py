@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager
+﻿from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -27,9 +27,6 @@ from app.routes import (
     employer_applications,
     platform,
     profile_source,
-    recruitment_v5,
-    structured,
-    v6,
 )
 
 
@@ -130,11 +127,8 @@ def health():
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(platform.router, prefix="/api")
-app.include_router(structured.router, prefix="/api")
 app.include_router(ai_career_engine.router, prefix="/api")
 app.include_router(ai_cv_v4_1.router, prefix="/api")
-app.include_router(recruitment_v5.router, prefix="/api")
-app.include_router(v6.router, prefix="/api")
 app.include_router(profile_source.router, prefix="/api")
 app.include_router(cv_versions.router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
@@ -152,3 +146,6 @@ app.include_router(
     employer_applications.router,
     prefix="/api",
 )
+
+
+
