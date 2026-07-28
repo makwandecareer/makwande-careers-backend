@@ -14,6 +14,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from app.services.cv_content_normalizer import normalise_cv_content
 
 STOPWORDS = {
     "and", "the", "with", "for", "that", "this", "from", "are", "was", "were",
@@ -74,9 +75,11 @@ def calculate_ats(
     cv_content: dict[str, Any],
     job_description: str,
 ) -> dict[str, Any]:
+    cv_content = normalise_cv_content(cv_content)
     cv_text = _flatten_text(cv_content)
     job_keywords = _top_keywords(job_description, 40)
     cv_words = set(_normalise_words(cv_text))
+    
 
     matched = [keyword for keyword in job_keywords if keyword in cv_words]
     missing = [keyword for keyword in job_keywords if keyword not in cv_words]
@@ -116,6 +119,8 @@ def calculate_ats(
 
 
 def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
+    cv_content = normalise_cv_content(cv_content)
+
     document = Document()
     section = document.sections[0]
     section.page_width = Mm(210)
@@ -201,7 +206,18 @@ def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
         )
 
     if cv_content.get("references"):
-        _docx_section(document, "References", cv_content["references"])
+        _docx_section(
+            document,
+            "References",
+            _section_text(cv_content["references"]),
+        )
+
+    if cv_content.get("declaration"):
+        _docx_section(
+            document,
+            "Declaration and Consent",
+            cv_content["declaration"],
+        )
 
     buffer = io.BytesIO()
     document.save(buffer)
@@ -209,6 +225,8 @@ def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
 
 
 def export_pdf(cv_content: dict[str, Any], template_key: str) -> bytes:
+    cv_content = normalise_cv_content(cv_content)
+
     buffer = io.BytesIO()
     styles = getSampleStyleSheet()
 
@@ -314,7 +332,22 @@ def export_pdf(cv_content: dict[str, Any], template_key: str) -> bytes:
         _pdf_section(story, heading, body, "Languages", " • ".join(filter(None, labels)))
 
     if cv_content.get("references"):
-        _pdf_section(story, heading, body, "References", cv_content["references"])
+        _pdf_section(
+            story,
+            heading,
+            body,
+            "References",
+            _section_text(cv_content["references"]),
+        )
+
+    if cv_content.get("declaration"):
+        _pdf_section(
+            story,
+            heading,
+            body,
+            "Declaration and Consent",
+            cv_content["declaration"],
+        )
 
     document = SimpleDocTemplate(
         buffer,
@@ -352,6 +385,35 @@ def _sentence(value: str) -> str:
     if not cleaned:
         return ""
     return cleaned[0].upper() + cleaned[1:] + "."
+
+
+def _section_text(value: Any) -> str:
+    if isinstance(value, list):
+        labels: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("full_name")
+                relationship = item.get("relationship")
+                contact = item.get("contact") or item.get("email") or item.get("phone")
+                label = " — ".join(
+                    str(part)
+                    for part in (name, relationship, contact)
+                    if part
+                )
+                if label:
+                    labels.append(label)
+            elif item:
+                labels.append(str(item))
+        return "\n".join(labels)
+
+    if isinstance(value, dict):
+        return "\n".join(
+            f"{key.replace('_', ' ').title()}: {item}"
+            for key, item in value.items()
+            if item
+        )
+
+    return "" if value is None else str(value)
 
 
 def _docx_section(document: Document, title: str, value: Any) -> None:
