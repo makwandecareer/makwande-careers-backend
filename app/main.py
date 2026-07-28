@@ -12,9 +12,7 @@ from app.database_employer import init_employer_database
 from app.database_employer_applications import (
     init_employer_application_database,
 )
-from app.database_v4 import init_v4_database
-from app.database_v4_1 import init_v4_1_database
-from app.database_v5 import init_v5_database
+from app.database_features import init_feature_database
 from app.integrations.router import router as integrations_router
 
 from app.routes import (
@@ -40,9 +38,7 @@ async def lifespan(_app: FastAPI):
     open_pool()
 
     init_database()
-    init_v4_database()
-    init_v4_1_database()
-    init_v5_database()
+    init_feature_database()
     init_account_database()
     init_employer_database()
     init_employer_application_database()
