@@ -1,46 +1,75 @@
-# Makwande Careers AI Career Engine v1
+# Makwande Careers Backend Database Refactor
 
-Backend patch for FastAPI using the OpenAI Responses API and structured outputs.
+This patch safely consolidates the following active database initialisers:
 
-## Features
+- `app/database_v4.py`
+- `app/database_v4_1.py`
+- `app/database_v5.py`
 
-- Career roadmap generation
-- Skills-gap analysis
-- Interview preparation
-- Cover-letter generation
-- Professional-summary improvement
-- Experience rewriting
-- Job-match analysis
-- Structured JSON responses
-- Uses the authenticated user's source-of-truth profile
-- OpenAI API key remains server-side
+into:
 
-## Install
+- `app/database_features.py`
 
-1. Copy the supplied `app` folder into the backend project.
-2. Add `openai>=2.0.0` to `requirements.txt`.
-3. Add these environment variables:
+No table, column, constraint, index, or CV-template seed record has been removed.
 
-```env
-OPENAI_API_KEY=your-secret-key
-OPENAI_MODEL=gpt-5.4-mini
+## Files to copy
+
+1. Copy `app/database_features.py` into your backend repository.
+2. Replace `app/main.py` with the supplied `app/main.py`.
+
+## Files to delete only after testing
+
+- `app/database_v4.py`
+- `app/database_v4_1.py`
+- `app/database_v5.py`
+
+## Safe Git commands
+
+```bash
+git checkout -b refactor/consolidate-database-initializers
+
+# Copy the supplied files into the repository first.
+
+python -m compileall app
+
+# Start the API and confirm database initialisation succeeds.
+uvicorn app.main:app --reload
+
+# Check these endpoints:
+# GET /
+# GET /health
+# GET /docs
+
+git add app/database_features.py app/main.py
+git commit -m "Consolidate versioned database initializers"
+
+# Only after the application starts successfully:
+git rm app/database_v4.py app/database_v4_1.py app/database_v5.py
+git commit -m "Remove replaced versioned database initializer files"
+
+git push -u origin refactor/consolidate-database-initializers
 ```
 
-4. In `app/main.py` add:
+## Production checks before merging
 
-```python
-from app.routes import ai_career_engine
-app.include_router(ai_career_engine.router, prefix="/api")
-```
+Confirm that these tables still exist:
 
-5. Restart the backend.
+- certifications
+- projects
+- languages
+- candidate_references
+- cv_templates
+- employers
+- jobs
+- applications
+- shortlists
+- ats_assessments
+- ai_revisions
+- generated_cv_snapshots
+- saved_jobs
+- candidate_invitations
+- interviews
+- notifications
+- audit_logs
 
-## Endpoints
-
-- `POST /api/ai-career/roadmap`
-- `POST /api/ai-career/skills-gap`
-- `POST /api/ai-career/interview-prep`
-- `POST /api/ai-career/cover-letter`
-- `POST /api/ai-career/improve-summary`
-- `POST /api/ai-career/improve-experience`
-- `POST /api/ai-career/job-match`
+Do not drop any database tables. This refactor changes only Python initialisation files.

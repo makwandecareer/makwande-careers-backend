@@ -29,3 +29,5 @@ fix_paystack_checkout.patch
 Thumbs.db__pycache__/
 *.pyc
 *.pyo
+__pycache__/
+*.pyc

@@ -1,10 +1,12 @@
-import os
+from __future__ import annotations
+
 from typing import Any, Callable
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.config import settings
 from app.database import get_connection
 from app.security import decode_token
 
@@ -14,8 +16,8 @@ bearer_security = HTTPBearer(auto_error=False)
 
 def normalize_value(value: Any) -> str:
     """
-    Safely converts database enum values, strings and None
-    into a lowercase string for permission comparisons.
+    Convert database enum values, strings and None into a normalized
+    lowercase string for safe role and permission comparisons.
     """
     if value is None:
         return ""
@@ -29,17 +31,22 @@ def get_current_user(
         bearer_security
     ),
 ) -> dict:
+    """
+    Validate the access token, verify its server-side session and return
+    the active authenticated user.
+    """
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
         payload = decode_token(credentials.credentials)
 
-        user_id = payload["sub"]
-        token_jti = payload["jti"]
+        user_id = payload.get("sub")
+        token_jti = payload.get("jti")
 
         if not user_id or not token_jti:
             raise ValueError("Token is missing required claims")
@@ -53,17 +60,16 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-
-    user = None
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT u.*
-                FROM users u
-                INNER JOIN user_sessions s
+                FROM users AS u
+                INNER JOIN user_sessions AS s
                     ON s.user_id = u.id
                 WHERE u.id = %s
                   AND s.token_jti = %s
@@ -71,7 +77,10 @@ def get_current_user(
                   AND s.expires_at > CURRENT_TIMESTAMP
                 LIMIT 1
                 """,
-                (str(user_id), str(token_jti)),
+                (
+                    str(user_id),
+                    str(token_jti),
+                ),
             )
 
             user = cursor.fetchone()
@@ -84,7 +93,10 @@ def get_current_user(
                     WHERE token_jti = %s
                       AND user_id = %s
                     """,
-                    (str(token_jti), str(user_id)),
+                    (
+                        str(token_jti),
+                        str(user_id),
+                    ),
                 )
 
         connection.commit()
@@ -93,6 +105,7 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is invalid, expired, or signed out",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     authenticated_user = dict(user)
@@ -104,6 +117,7 @@ def get_current_user(
         )
 
     authenticated_user["_token_payload"] = payload
+
     return authenticated_user
 
 
@@ -114,6 +128,10 @@ current_user = get_current_user
 def require_roles(
     *allowed_roles: str,
 ) -> Callable[..., dict]:
+    """
+    Create a FastAPI dependency that restricts an endpoint to one or
+    more allowed user roles.
+    """
     normalized_allowed_roles = {
         normalize_value(role)
         for role in allowed_roles
@@ -130,10 +148,7 @@ def require_roles(
     ) -> dict:
         user_role = normalize_value(user.get("role"))
         user_email = normalize_value(user.get("email"))
-
-        configured_admin_email = normalize_value(
-            os.getenv("ADMIN_EMAIL")
-        )
+        configured_admin_email = normalize_value(settings.admin_email)
 
         role_is_allowed = user_role in normalized_allowed_roles
 
@@ -154,7 +169,7 @@ def require_roles(
     return role_checker
 
 
-# Compatibility name used by platform.py.
+# Compatibility name used by existing routes.
 roles = require_roles
 
 
@@ -162,11 +177,10 @@ def require_active_subscription(
     user: dict = Depends(get_current_user),
 ) -> dict:
     """
-    Allows access only when the logged-in user has an active,
-    unexpired subscription.
+    Allow access only when the authenticated user has an active,
+    unexpired Makwande Careers subscription.
     """
     user_id = str(user["id"])
-    subscription = None
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -177,7 +191,7 @@ def require_active_subscription(
                     status = 'expired',
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = %s
-                  AND status::text = 'active'
+                  AND status = 'active'
                   AND expires_at <= CURRENT_TIMESTAMP
                 """,
                 (user_id,),
@@ -186,16 +200,16 @@ def require_active_subscription(
             cursor.execute(
                 """
                 SELECT
-                    id,
-                    plan_code,
-                    amount,
-                    currency,
+                    user_id,
+                    plan_key,
                     status,
                     starts_at,
-                    expires_at
+                    expires_at,
+                    payment_reference,
+                    updated_at
                 FROM subscriptions
                 WHERE user_id = %s
-                  AND status::text = 'active'
+                  AND status = 'active'
                   AND starts_at <= CURRENT_TIMESTAMP
                   AND expires_at > CURRENT_TIMESTAMP
                 ORDER BY expires_at DESC
@@ -229,11 +243,9 @@ def require_active_subscription(
 
 def has_used_trial(user_id: str) -> bool:
     """
-    Returns True when the user has previously received
-    the 14-day introductory trial.
+    Return True when the user has previously received the
+    14-day introductory trial.
     """
-    result = None
-
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -242,7 +254,7 @@ def has_used_trial(user_id: str) -> bool:
                     SELECT 1
                     FROM subscriptions
                     WHERE user_id = %s
-                      AND plan_code::text IN (
+                      AND plan_key IN (
                           'trial_14_day',
                           'trial_14_days'
                       )
@@ -253,4 +265,10 @@ def has_used_trial(user_id: str) -> bool:
 
             result = cursor.fetchone()
 
-    return bool(result and result.get("trial_used"))
+    if result is None:
+        return False
+
+    if isinstance(result, dict):
+        return bool(result.get("trial_used"))
+
+    return bool(result[0])

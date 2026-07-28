@@ -1,0 +1,113 @@
+=========================================================
+MAKWANDE CAREERS AI
+BACKEND DATABASE REFACTOR
+=========================================================
+
+Backend Root Path
+
+E:\Makwande_Careers_Backend\makwande-Careers-backend
+
+
+=========================================================
+STEP 1
+=========================================================
+
+Create this file:
+
+app\database_features.py
+
+Copy the new consolidated database code into it.
+
+
+=========================================================
+STEP 2
+=========================================================
+
+Replace:
+
+app\main.py
+
+with the new version that imports:
+
+from app.database_features import init_feature_database
+
+and calls:
+
+init_feature_database()
+
+
+=========================================================
+STEP 3
+=========================================================
+
+DO NOT DELETE THESE FILES YET
+
+app\database_v4.py
+
+app\database_v4_1.py
+
+app\database_v5.py
+
+
+=========================================================
+STEP 4
+=========================================================
+
+Open Command Prompt
+
+cd /d E:\Makwande_Careers_Backend\makwande-Careers-backend
+
+python -m compileall app
+
+uvicorn app.main:app --reload
+
+
+=========================================================
+STEP 5
+=========================================================
+
+Test
+
+http://127.0.0.1:8000/
+
+http://127.0.0.1:8000/health
+
+http://127.0.0.1:8000/docs
+
+
+=========================================================
+STEP 6
+=========================================================
+
+If everything starts successfully:
+
+Delete
+
+app\database_v4.py
+
+app\database_v4_1.py
+
+app\database_v5.py
+
+
+=========================================================
+STEP 7
+=========================================================
+
+Git
+
+git add .
+
+git commit -m "Consolidated database initializers"
+
+git push
+
+
+=========================================================
+IMPORTANT
+=========================================================
+
+Never delete database tables.
+
+This refactor only removes duplicate Python initialization
+files after confirming the new initializer works.
