@@ -27,6 +27,7 @@ from app.routes import (
     employer_applications,
     platform,
     profile_source,
+    structured,
 )
 
 
@@ -136,6 +137,7 @@ app.include_router(billing_router, prefix="/api")
 app.include_router(account.router, prefix="/api")
 app.include_router(admin_analytics.router, prefix="/api")
 app.include_router(employer.router, prefix="/api")
+app.include_router(structured.router, prefix="/api")
 
 app.include_router(
     candidate_applications.router,
