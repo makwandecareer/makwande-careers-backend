@@ -31,3 +31,5 @@ Thumbs.db__pycache__/
 *.pyo
 __pycache__/
 *.pyc
+__pycache__/
+*.pyc
