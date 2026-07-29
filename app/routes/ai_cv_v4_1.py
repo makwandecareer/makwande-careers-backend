@@ -13,7 +13,7 @@ from pypdf import PdfReader
 
 from app.database import get_connection
 from app.dependencies import get_current_user
-from app.dependencies.cv_download_access import require_cv_download_access
+from app.dependencies import get_current_user, require_active_subscription
 from app.schemas_ai_cv_v4_1 import (
     ATSScoreRequest,
     ATSScoreResponse,
@@ -499,7 +499,7 @@ def generated_history(
 @router.post("/export/docx")
 def download_docx(
     payload: ExportCVRequest,
-    _user: dict = Depends(require_cv_download_access),
+    _user: dict = Depends(require_active_subscription),
 ):
     filename = _safe_filename(payload.filename) + ".docx"
     content = export_docx(payload.cv_content, payload.template_key)
@@ -514,7 +514,7 @@ def download_docx(
 @router.post("/export/pdf")
 def download_pdf(
     payload: ExportCVRequest,
-    _user: dict = Depends(require_cv_download_access),
+    _user: dict = Depends(require_active_subscription),
 ):
     filename = _safe_filename(payload.filename) + ".pdf"
     content = export_pdf(payload.cv_content, payload.template_key)
