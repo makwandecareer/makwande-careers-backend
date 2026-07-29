@@ -12,9 +12,10 @@ from docx.shared import Inches, Mm, Pt
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
 from app.services.cv_content_normalizer import normalise_cv_content
+from app.services.resume_phase14_engine import enrich_phase14
 
 STOPWORDS = {
     "and", "the", "with", "for", "that", "this", "from", "are", "was", "were",
@@ -76,6 +77,7 @@ def calculate_ats(
     job_description: str,
 ) -> dict[str, Any]:
     cv_content = normalise_cv_content(cv_content)
+    cv_content, intelligence = enrich_phase14(cv_content, job_description)
     cv_text = _flatten_text(cv_content)
     job_keywords = _top_keywords(job_description, 40)
     cv_words = set(_normalise_words(cv_text))
@@ -115,11 +117,15 @@ def calculate_ats(
         "matched_keywords": matched,
         "missing_keywords": missing[:25],
         "recommendations": recommendations,
+        "resume_recommendations": intelligence.get("warnings", []),
+        "profile_score": intelligence.get("profile_readiness", 0),
+        "resume_intelligence": intelligence,
     }
 
 
 def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
     cv_content = normalise_cv_content(cv_content)
+    cv_content, _ = enrich_phase14(cv_content)
 
     document = Document()
     section = document.sections[0]
@@ -166,14 +172,7 @@ def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
 
     _docx_section(document, "Professional Summary", cv_content.get("professional_summary"))
 
-    skills = cv_content.get("skills") or []
-    if skills:
-        document.add_heading("Core Skills", level=1)
-        names = [
-            item.get("name", "") if isinstance(item, dict) else str(item)
-            for item in skills
-        ]
-        document.add_paragraph(" • ".join(filter(None, names)))
+    _docx_skill_categories(document, cv_content)
 
     _docx_experience(document, cv_content.get("experience") or [], template_key)
     _docx_education(document, cv_content.get("education") or [])
@@ -194,6 +193,24 @@ def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
                 part for part in (item.get("name"), item.get("issuer")) if part
             )
             document.add_paragraph(text, style="List Bullet")
+
+    memberships = cv_content.get("professional_memberships") or []
+    if memberships:
+        document.add_heading("Professional Memberships and Registrations", level=1)
+        for item in memberships:
+            document.add_paragraph(_professional_membership_text(item), style="List Bullet")
+
+    awards = cv_content.get("awards") or []
+    if awards:
+        document.add_heading("Awards and Recognition", level=1)
+        for item in awards:
+            document.add_paragraph(_section_text(item), style="List Bullet")
+
+    volunteer = cv_content.get("volunteer_experience") or []
+    if volunteer:
+        document.add_heading("Volunteer Experience", level=1)
+        for item in volunteer:
+            document.add_paragraph(_section_text(item), style="List Bullet")
 
     languages = cv_content.get("languages") or []
     if languages:
@@ -226,6 +243,7 @@ def export_docx(cv_content: dict[str, Any], template_key: str) -> bytes:
 
 def export_pdf(cv_content: dict[str, Any], template_key: str) -> bytes:
     cv_content = normalise_cv_content(cv_content)
+    cv_content, _ = enrich_phase14(cv_content)
 
     buffer = io.BytesIO()
     styles = getSampleStyleSheet()
@@ -274,26 +292,31 @@ def export_pdf(cv_content: dict[str, Any], template_key: str) -> bytes:
 
     _pdf_section(story, heading, body, "Professional Summary", cv_content.get("professional_summary"))
 
-    skills = cv_content.get("skills") or []
-    if skills:
-        names = [
-            item.get("name", "") if isinstance(item, dict) else str(item)
-            for item in skills
-        ]
-        _pdf_section(story, heading, body, "Core Skills", " • ".join(filter(None, names)))
+    _pdf_skill_categories(story, heading, body, cv_content)
 
     experience = cv_content.get("experience") or []
     if experience:
         story.append(Paragraph("Professional Experience", heading))
         for item in experience:
             label = " — ".join(
-                part for part in (item.get("job_title"), item.get("company")) if part
+                str(part) for part in (item.get("job_title"), item.get("company")) if part
             )
-            story.append(Paragraph(html.escape(label or "Experience"), styles["Heading2"]))
-            if item.get("description"):
-                story.append(Paragraph(html.escape(str(item["description"])), body))
-            for achievement in item.get("achievements") or []:
-                story.append(Paragraph("• " + html.escape(str(achievement)), body))
+            block: list[Any] = [Paragraph(html.escape(label or "Experience"), styles["Heading2"])]
+            dates = _date_range(item)
+            meta = " | ".join(str(part) for part in (dates, item.get("location"), item.get("employment_type")) if part)
+            if meta:
+                block.append(Paragraph(html.escape(meta), body))
+            duties = item.get("responsibilities") or item.get("duties") or []
+            if duties:
+                block.append(Paragraph("<b>Key Responsibilities</b>", body))
+                for duty in duties:
+                    block.append(Paragraph("• " + html.escape(str(duty)), body))
+            achievements = item.get("achievements") or []
+            if achievements:
+                block.append(Paragraph("<b>Key Achievements</b>", body))
+                for achievement in achievements:
+                    block.append(Paragraph("• " + html.escape(str(achievement)), body))
+            story.append(KeepTogether(block))
 
     education = cv_content.get("education") or []
     if education:
@@ -322,6 +345,24 @@ def export_pdf(cv_content: dict[str, Any], template_key: str) -> bytes:
                 part for part in (item.get("name"), item.get("issuer")) if part
             )
             story.append(Paragraph("• " + html.escape(label), body))
+
+    memberships = cv_content.get("professional_memberships") or []
+    if memberships:
+        story.append(Paragraph("Professional Memberships and Registrations", heading))
+        for item in memberships:
+            story.append(Paragraph("• " + html.escape(_professional_membership_text(item)), body))
+
+    awards = cv_content.get("awards") or []
+    if awards:
+        story.append(Paragraph("Awards and Recognition", heading))
+        for item in awards:
+            story.append(Paragraph("• " + html.escape(_section_text(item)), body))
+
+    volunteer = cv_content.get("volunteer_experience") or []
+    if volunteer:
+        story.append(Paragraph("Volunteer Experience", heading))
+        for item in volunteer:
+            story.append(Paragraph("• " + html.escape(_section_text(item)), body))
 
     languages = cv_content.get("languages") or []
     if languages:
@@ -428,13 +469,30 @@ def _docx_experience(document: Document, items: list[dict], template_key: str) -
     document.add_heading("Professional Experience", level=1)
     for item in items:
         label = " — ".join(
-            part for part in (item.get("job_title"), item.get("company")) if part
+            str(part) for part in (item.get("job_title"), item.get("company")) if part
         )
         document.add_heading(label or "Experience", level=2)
-        if item.get("description"):
-            document.add_paragraph(str(item["description"]))
-        for achievement in item.get("achievements") or []:
-            document.add_paragraph(str(achievement), style="List Bullet")
+        meta = " | ".join(
+            str(part) for part in (_date_range(item), item.get("location"), item.get("employment_type")) if part
+        )
+        if meta:
+            paragraph = document.add_paragraph()
+            run = paragraph.add_run(meta)
+            run.italic = True
+
+        duties = item.get("responsibilities") or item.get("duties") or []
+        if duties:
+            paragraph = document.add_paragraph()
+            paragraph.add_run("Key Responsibilities").bold = True
+            for duty in duties:
+                document.add_paragraph(str(duty), style="List Bullet")
+
+        achievements = item.get("achievements") or []
+        if achievements:
+            paragraph = document.add_paragraph()
+            paragraph.add_run("Key Achievements").bold = True
+            for achievement in achievements:
+                document.add_paragraph(str(achievement), style="List Bullet")
 
 
 def _docx_education(document: Document, items: list[dict]) -> None:
@@ -448,6 +506,75 @@ def _docx_education(document: Document, items: list[dict]) -> None:
         document.add_heading(label or "Education", level=2)
         if item.get("field_of_study"):
             document.add_paragraph(str(item["field_of_study"]))
+
+
+def _date_range(item: dict[str, Any]) -> str:
+    start = item.get("start_date") or item.get("date_from")
+    end = item.get("end_date") or item.get("date_to")
+    if item.get("is_current") and not end:
+        end = "Present"
+    if start and end:
+        return f"({start}) – ({end})"
+    return str(start or end or "")
+
+
+def _professional_membership_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return str(item)
+    return " | ".join(
+        str(value) for value in (
+            item.get("name") or item.get("organisation"),
+            item.get("membership_number") or item.get("registration_number"),
+            item.get("status"),
+            item.get("expiry_date"),
+        ) if value
+    )
+
+
+def _docx_skill_categories(document: Document, content: dict[str, Any]) -> None:
+    categories = content.get("skill_categories") or {}
+    labels = {
+        "technical_skills": "Technical Skills",
+        "software_and_systems": "Software and Systems",
+        "laboratory_and_equipment": "Laboratory and Equipment",
+        "industry_standards": "Industry Standards",
+        "professional_competencies": "Professional Competencies",
+    }
+    rendered = False
+    for key, title in labels.items():
+        values = categories.get(key) or []
+        if values:
+            document.add_heading(title, level=1)
+            document.add_paragraph(" • ".join(str(value) for value in values))
+            rendered = True
+    if not rendered:
+        skills = content.get("skills") or []
+        names = [item.get("name", "") if isinstance(item, dict) else str(item) for item in skills]
+        if any(names):
+            document.add_heading("Core Skills", level=1)
+            document.add_paragraph(" • ".join(filter(None, names)))
+
+
+def _pdf_skill_categories(story: list[Any], heading: ParagraphStyle, body: ParagraphStyle, content: dict[str, Any]) -> None:
+    categories = content.get("skill_categories") or {}
+    labels = {
+        "technical_skills": "Technical Skills",
+        "software_and_systems": "Software and Systems",
+        "laboratory_and_equipment": "Laboratory and Equipment",
+        "industry_standards": "Industry Standards",
+        "professional_competencies": "Professional Competencies",
+    }
+    rendered = False
+    for key, title in labels.items():
+        values = categories.get(key) or []
+        if values:
+            _pdf_section(story, heading, body, title, " • ".join(str(value) for value in values))
+            rendered = True
+    if not rendered:
+        skills = content.get("skills") or []
+        names = [item.get("name", "") if isinstance(item, dict) else str(item) for item in skills]
+        if any(names):
+            _pdf_section(story, heading, body, "Core Skills", " • ".join(filter(None, names)))
 
 
 def _pdf_section(

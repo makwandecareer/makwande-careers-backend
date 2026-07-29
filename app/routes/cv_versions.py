@@ -183,6 +183,7 @@ def get_owned_cv(
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
+    operation_id="cv_versions_create_cv",
 )
 def create_cv(
     payload: CVCreateRequest,
@@ -271,7 +272,10 @@ def create_cv(
 # ============================================================
 
 
-@router.get("")
+@router.get(
+    "",
+    operation_id="cv_versions_list_cvs",
+)
 def list_cvs(
     user: dict[str, Any] = Depends(get_current_user),
 ):
@@ -304,7 +308,10 @@ def list_cvs(
 # ============================================================
 
 
-@router.get("/{cv_id}")
+@router.get(
+    "/{cv_id}",
+    operation_id="cv_versions_get_cv",
+)
 def get_cv(
     cv_id: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -339,7 +346,10 @@ def get_cv(
 # ============================================================
 
 
-@router.put("/{cv_id}")
+@router.put(
+    "/{cv_id}",
+    operation_id="cv_versions_update_cv",
+)
 def update_cv(
     cv_id: str,
     payload: CVUpdateRequest,
@@ -451,6 +461,7 @@ def update_cv(
 @router.delete(
     "/{cv_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    operation_id="cv_versions_delete_cv",
 )
 def delete_cv(
     cv_id: str,
@@ -515,6 +526,7 @@ def delete_cv(
 @router.post(
     "/{cv_id}/duplicate",
     status_code=status.HTTP_201_CREATED,
+    operation_id="cv_versions_duplicate_cv",
 )
 def duplicate_cv(
     cv_id: str,
@@ -616,7 +628,10 @@ def duplicate_cv(
 # ============================================================
 
 
-@router.get("/{cv_id}/versions")
+@router.get(
+    "/{cv_id}/versions",
+    operation_id="cv_versions_list_cv_versions",
+)
 def list_cv_versions(
     cv_id: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -669,6 +684,7 @@ def list_cv_versions(
 
 @router.post(
     "/{cv_id}/versions/{version_id}/restore",
+    operation_id="cv_versions_restore_cv_version",
 )
 def restore_cv_version(
     cv_id: str,
