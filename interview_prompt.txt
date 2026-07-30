@@ -1,0 +1,2 @@
+Generate behavioural and technical interview questions for the role.
+Provide STAR-based guidance for answering and practical interview tips.

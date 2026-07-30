@@ -1,0 +1,3 @@
+Generate a concise, ATS-friendly professional summary tailored to the
+target role. Highlight years of experience, key skills, industry
+expertise, and measurable impact.
