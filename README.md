@@ -1,75 +1,36 @@
-# Makwande Careers Backend Database Refactor
+# Makwande Careers CV Export Fix
 
-This patch safely consolidates the following active database initialisers:
+This patch addresses the two visible failures:
 
-- `app/database_v4.py`
-- `app/database_v4_1.py`
-- `app/database_v5.py`
+1. Structured API errors are rendered as `[object Object]`.
+2. PDF and DOCX export requests fail without producing a downloadable file.
 
-into:
+## Frontend changes
 
-- `app/database_features.py`
+- Replace `lib/client-api.ts` with the supplied implementation.
+- Add `components/cv-studio/export-document.ts`.
+- Apply the edits in `CVStudio.patch.txt`.
+- Keep export errors inline; do not replace the whole CV Studio screen.
 
-No table, column, constraint, index, or CV-template seed record has been removed.
+## Backend changes
 
-## Files to copy
+The browser screenshot shows HTTP 402 responses from:
 
-1. Copy `app/database_features.py` into your backend repository.
-2. Replace `app/main.py` with the supplied `app/main.py`.
+- `/api/ai-cv/export/pdf`
+- `/api/ai-cv/export/docx`
 
-## Files to delete only after testing
+Locate the dependency or entitlement check that raises 402. Decide whether downloads are:
 
-- `app/database_v4.py`
-- `app/database_v4_1.py`
-- `app/database_v5.py`
+- authenticated-user features: remove the paid entitlement dependency; or
+- paid features: preserve 402 but return a clear string message and ensure the user's active membership is recognised.
 
-## Safe Git commands
+The backend must return raw binary bytes with the correct `Content-Type` and `Content-Disposition` headers. Use `backend/export_routes_example.py` as the response contract reference.
 
-```bash
-git checkout -b refactor/consolidate-database-initializers
+## Verification
 
-# Copy the supplied files into the repository first.
-
-python -m compileall app
-
-# Start the API and confirm database initialisation succeeds.
-uvicorn app.main:app --reload
-
-# Check these endpoints:
-# GET /
-# GET /health
-# GET /docs
-
-git add app/database_features.py app/main.py
-git commit -m "Consolidate versioned database initializers"
-
-# Only after the application starts successfully:
-git rm app/database_v4.py app/database_v4_1.py app/database_v5.py
-git commit -m "Remove replaced versioned database initializer files"
-
-git push -u origin refactor/consolidate-database-initializers
-```
-
-## Production checks before merging
-
-Confirm that these tables still exist:
-
-- certifications
-- projects
-- languages
-- candidate_references
-- cv_templates
-- employers
-- jobs
-- applications
-- shortlists
-- ats_assessments
-- ai_revisions
-- generated_cv_snapshots
-- saved_jobs
-- candidate_invitations
-- interviews
-- notifications
-- audit_logs
-
-Do not drop any database tables. This refactor changes only Python initialisation files.
+1. Open CV Studio.
+2. Click PDF.
+3. Confirm Network shows 200 and `content-type: application/pdf`.
+4. Confirm the file downloads and opens.
+5. Repeat for DOCX and confirm the Office Open XML MIME type.
+6. Test an unauthorised account and verify that a readable message appears without unmounting CV Studio.
