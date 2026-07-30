@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from app.database import get_connection
 from app.dependencies import get_current_user
 
+from fastapi.responses import StreamingResponse
+from app.services.pdf_export_service import PDFExportService
+from app.services.docx_export_service import DOCXExportService
+import io
 
 router = APIRouter(prefix="/cv-studio", tags=["CV Studio"])
 
@@ -369,6 +373,95 @@ def restore_version(
         connection.commit()
 
     return restored
+
+# ==========================================================
+# EXPORT PDF
+# ==========================================================
+
+@router.post("/{cv_id}/export/pdf")
+def export_pdf(
+    cv_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM cvs
+                WHERE id=%s
+                AND owner_id=%s
+                """,
+                (
+                    cv_id,
+                    _owner_id(user),
+                ),
+            )
+
+            cv = cursor.fetchone()
+
+    if cv is None:
+        raise HTTPException(
+            status_code=404,
+            detail="CV not found",
+        )
+
+    pdf_bytes = PDFExportService().export(cv["content"])
+
+    filename = f'{cv["title"]}.pdf'
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+# ==========================================================
+# EXPORT DOCX
+# ==========================================================
+
+@router.post("/{cv_id}/export/docx")
+def export_docx(
+    cv_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM cvs
+                WHERE id=%s
+                AND owner_id=%s
+                """,
+                (
+                    cv_id,
+                    _owner_id(user),
+                ),
+            )
+
+            cv = cursor.fetchone()
+
+    if cv is None:
+        raise HTTPException(
+            status_code=404,
+            detail="CV not found",
+        )
+
+    docx_bytes = DOCXExportService().export(cv["content"])
+
+    filename = f'{cv["title"]}.docx'
+
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
 
 
 @router.delete("/{cv_id}", status_code=status.HTTP_204_NO_CONTENT)
