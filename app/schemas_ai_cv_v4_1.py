@@ -66,8 +66,16 @@ class TextImprovementResponse(BaseModel):
 
 
 class ExportCVRequest(BaseModel):
-    filename: str = Field(default="makwande-careers-cv", min_length=1, max_length=120)
-    template_key: TemplateKey = "ats-standard"
+    filename: str = Field(
+        default="makwande-careers-cv",
+        min_length=1,
+        max_length=120,
+    )
+    template_key: str = Field(
+        default="ats-standard",
+        min_length=1,
+        max_length=120,
+    )
     cv_content: dict[str, Any]
 
 
